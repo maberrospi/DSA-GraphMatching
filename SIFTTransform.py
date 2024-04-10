@@ -32,10 +32,10 @@ def feat_kp_dscr(preEVT, postEVT, feat_extr="sift"):
     # Visualise Keypoints on both images
     fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
-    axs[0].set_title("Pre-EVT keypoints With Size")
+    axs[0].set_title("Pre-EVT keypoints")
     axs[0].imshow(preEVTwKP, cmap="gray")
 
-    axs[1].set_title("Post-EVT keypoints With Size")
+    axs[1].set_title("Post-EVT keypoints")
     axs[1].imshow(postEVTwKP, cmap="gray")
     # plt.show()
 
