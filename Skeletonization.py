@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import cv2
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib.widgets import Button
@@ -86,6 +87,13 @@ def get_skeletons(segm_images, method="zhang"):
             skeleton_images.append(thin(img))
 
     return skeleton_images, distance
+
+
+def find_centerlines(skeleton):
+    # Returns the coordinates of all the white pixels with x and y as columns
+    # In other words the shape is (n,2) where n is the number of white pxls
+    points = np.vstack(np.nonzero(skeleton)).T
+    return points
 
 
 class Visualize:
