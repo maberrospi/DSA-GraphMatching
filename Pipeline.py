@@ -16,6 +16,8 @@ from Skeletonization import (
     vis_skeleton_and_segm,
 )
 
+# Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
+
 
 def main():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
@@ -36,9 +38,9 @@ def main():
     # Read the images to be used by SIFT
     # preEVT = cv2.imread("images/preEVTcrop.png", cv2.COLOR_BGR2GRAY)
     # postEVT = cv2.imread("images/PostEVTcrop.png", cv2.COLOR_BGR2GRAY)
-    IMG_DIR_PATH = "Minip/R0008/0"
-    # IMG_DIR_PATH = "Niftis/R0001/0"
-    images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="minip")
+    # IMG_DIR_PATH = "Minip/R0011/0"
+    IMG_DIR_PATH = "Niftis/R0002/0"
+    images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:
         return
@@ -58,11 +60,11 @@ def main():
     preEVT, postEVT = sift.remove_borders(notextpreEVT, notextpostEVT)
 
     # Resize the images
-    newW, newH = 512, 512
-    preEVT = resize(preEVT, (newW, newH), anti_aliasing=True, preserve_range=True)
-    postEVT = resize(postEVT, (newW, newH), anti_aliasing=True, preserve_range=True)
-    preEVT = preEVT.astype(np.uint8)
-    postEVT = postEVT.astype(np.uint8)
+    # newW, newH = 512, 512
+    # preEVT = resize(preEVT, (newW, newH), anti_aliasing=True, preserve_range=True)
+    # postEVT = resize(postEVT, (newW, newH), anti_aliasing=True, preserve_range=True)
+    # preEVT = preEVT.astype(np.uint8)
+    # postEVT = postEVT.astype(np.uint8)
 
     prekp, predsc, postkp, postdsc = sift.feat_kp_dscr(
         preEVT, postEVT, feat_extr="sift"
@@ -70,12 +72,13 @@ def main():
     matches = sift.find_feat_matches(predsc, postdsc)
     sift.plot_matches(preEVT, prekp, postEVT, postkp, matches)
     transformation = sift.transform_post(prekp, postkp, matches)
+    # print(transformation)
 
     # 2. Segmentation
 
     IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
     IMG_SEQ_DIR_PATH = (
-        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0008"
+        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     )
     # segm_images = load_images(IMG_MIN_DIR_PATH)
     segm_images1 = load_images(IMG_SEQ_DIR_PATH)
@@ -96,16 +99,26 @@ def main():
     #     print(f"Segmentations: {Path(segm).stem.rsplit("_",1)[0]}")
 
     sift.display_tranformed(transformation, preEVT, postEVT)
-    # Warp and display the segmentations
-    warped_segm_post = sift.display_tranformed(
-        transformation, segm_pre_post[0], segm_pre_post[1], ret=True
-    )
+
+    # Check if the transformation quality is better than the original
+    if not sift.check_transform(transformation, preEVT, postEVT):
+        # The transformation is worse than the original
+        print("Using the original post-EVT image")
+        final_segm_post = segm_pre_post[1]
+    else:
+        # Scale transformation matrix for segmentation image size
+        scale_matrix = np.array([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 1]])
+        transformation = scale_matrix @ transformation @ np.linalg.inv(scale_matrix)
+        # Warp and display the segmentations
+        final_segm_post = sift.display_tranformed(
+            transformation, segm_pre_post[0], segm_pre_post[1], ret=True
+        )
 
     # 3. Skeletonization
 
     # Perform skeletonization
     skeleton_images, distance_transform = get_skeletons(
-        [segm_pre_post[0], warped_segm_post], method="lee"
+        [segm_pre_post[0], final_segm_post], method="lee"
     )
     if not skeleton_images:
         return
@@ -118,7 +131,7 @@ def main():
     # vis_skeleton_and_segm(skeleton_image, segm)
 
     vis_skeletons = VisualizeSkeletons(
-        skeleton_images, [segm_pre_post[0], warped_segm_post]
+        skeleton_images, [segm_pre_post[0], final_segm_post]
     )
     vis_skeletons.vis_images()
     bnext = Button(vis_skeletons.axnext, "Next")

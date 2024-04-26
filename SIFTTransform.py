@@ -15,6 +15,7 @@ from prepareData import prepare_data
 #              https://docs.opencv.org/4.x/da/df5/tutorial_py_sift_intro.html
 #              https://theailearner.com/2020/11/06/perspective-transformation/
 #              https://stackoverflow.com/questions/37771263/detect-text-area-in-an-image-using-python-and-opencv
+#              https://matthew-brett.github.io/teaching/mutual_information.html
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,10 @@ def transform_post(preEVTkp, postEVTkp, matches):
 def display_tranformed(transform, preEVT, postEVT, ret=False):
     # Warp image
     warped_image = cv2.warpPerspective(
-        postEVT, transform, (postEVT.shape[1], postEVT.shape[0])
+        postEVT,
+        transform,
+        (postEVT.shape[1], postEVT.shape[0]),
+        # borderMode=cv2.BORDER_REPLICATE,
     )
     # warped_image = cv2.warpAffine(
     #     postEVT, transform, (postEVT.shape[1], postEVT.shape[0])
@@ -154,6 +158,69 @@ def display_tranformed(transform, preEVT, postEVT, ret=False):
 
     if ret:
         return warped_image
+
+
+def check_transform(transform, preEVT, postEVT):
+    # The Mutual Information score should be relatively higher
+    # when comparing the original and transformed images if the
+    # registration yields good results
+
+    # Warp image
+    warped_image = cv2.warpPerspective(
+        postEVT,
+        transform,
+        (postEVT.shape[1], postEVT.shape[0]),
+        # borderMode=cv2.BORDER_REPLICATE,
+    )
+    # Calculate 2D histogram of the preEVT and warped postEVT
+    hist, x_edges, y_edges = np.histogram2d(
+        preEVT.ravel(), warped_image.ravel(), bins=20
+    )
+
+    # Show log histogram, avoiding divide by 0
+    # hist_log = np.zeros(hist.shape)
+    # non_zeros = hist != 0
+    # hist_log[non_zeros] = np.log(hist[non_zeros])
+    # plt.imshow(hist_log.T, origin="lower")
+    # plt.xlabel("pre-EVT bin")
+    # plt.ylabel("post-EVT bin")
+
+    # Calculate Mutual Information for the joint histogram
+    mi_tr = calc_mutual_information(hist)
+    print(f"Transformed Mutual information score: {mi_tr}")
+
+    # Calculate 2D histogram of the preEVT and original postEVT
+    hist_or, x_edges, y_edges = np.histogram2d(preEVT.ravel(), postEVT.ravel(), bins=20)
+    # Calculate Mutual Information for the joint histogram
+    mi_orig = calc_mutual_information(hist_or)
+    print(f"Original Mutual information score: {mi_orig}")
+
+    # Calculate 2D histogram of the preEVT and original postEVT
+    hist_or, x_edges, y_edges = np.histogram2d(preEVT.ravel(), preEVT.ravel(), bins=20)
+    # Calculate Mutual Information for the joint histogram
+    mi_own = calc_mutual_information(hist_or)
+    print(f"Max Mutual information score: {mi_own}")
+
+    # Compare the two scores
+    if mi_orig < mi_tr:
+        # print("The transformed image is better aligned")
+        return True
+    else:
+        return False
+
+
+def calc_mutual_information(histogram):
+    # Calculate Mutual Information for the joint histogram
+    # This function uses the Probability Mass function MI equation
+    # Convert bins counts to probability values
+    pxy = histogram / float(np.sum(histogram))
+    px = np.sum(pxy, axis=1)  # marginal for x over y
+    py = np.sum(pxy, axis=0)  # marginal for y over x
+    px_py = px[:, None] * py[None, :]  # Broadcast to multiply marginals
+    # Now we can do the calculation using the pxy, px_py 2D arrays
+    nzs = pxy > 0  # Only non-zero pxy values contribute to the sum
+    mi = np.sum(pxy[nzs] * np.log(pxy[nzs] / px_py[nzs]))
+    return mi
 
 
 def load_img_dir(img_dir_path, img_type="minip"):
@@ -252,7 +319,11 @@ def remove_unwanted_text(preevtimg, postevtimg):
     preevt = np.copy(preevtimg)
     postevt = np.copy(postevtimg)
     # Threshold the pre-EVT image to find the text
-    ret, thresh = cv2.threshold(preevt, 240, 255, cv2.THRESH_BINARY)
+    # Values are based on trial and error
+    ret, thresh = cv2.threshold(preevt, 230, 255, cv2.THRESH_BINARY)
+    # If the the given threshold only returns black
+    if not np.any(thresh):
+        ret, thresh = cv2.threshold(preevt, 200, 255, cv2.THRESH_BINARY)
     # Dilate to combine adjacent text contours
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
     dilate = cv2.dilate(thresh, kernel, iterations=4)
@@ -267,12 +338,12 @@ def remove_unwanted_text(preevtimg, postevtimg):
     # Find the first column with non-black px value
     for px in preevt[0, :]:
         if px != 0:
-            px_val_post = px
+            px_val_pre = px
             break
 
     for px in postevt[0, :]:
         if px != 0:
-            px_val_pre = px
+            px_val_post = px
             break
 
     # Use contours to mask the text areas
