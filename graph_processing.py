@@ -23,18 +23,10 @@ def calc_pixel_connectivity(skeleton, skeleton_pts):
             ):
                 continue
             # Check if the neighboor is also part of the skeleton
-            # print(sklt_connect[nb[0], nb[1]])
             if skeleton[nb[0], nb[1]] != 0:
                 cnt += 1
         sklt_connect[pt[0], pt[1]] = cnt
-        # print(pt.shape)
-        # print(sklt_connect[pt])
-        # i += 1
-        # if i == 3:
-        #    break
-    # plt.imshow(sklt_connect)
-    # plt.colorbar()
-    # plt.show()
+
     return sklt_connect
 
 
@@ -58,9 +50,6 @@ def construct_vID_LUT(sklt_points, img_shape):
     ids = np.arange(0, sklt_points.shape[0])
     v_id_LUT = np.zeros(img_shape, dtype=np.int_)
     v_id_LUT[sklt_points[:, 0], sklt_points[:, 1]] = ids
-    # plt.imshow(v_id_LUT)
-    # plt.colorbar()
-    # plt.show()
     return v_id_LUT
 
 
@@ -68,20 +57,16 @@ def edge_detection(skeleton_pts, vertex_LUT):
     edges = []
 
     for pt in skeleton_pts:
-        # print(f"PT: {pt}")
         for nb in candidate_neighbors(pt):
             # If the neighboor is outside the bounds of the image skip
             if (nb[0] < 0 or nb[0] >= vertex_LUT.shape[0]) or (
                 nb[1] < 0 or nb[1] >= vertex_LUT.shape[0]
             ):
                 continue
-            # if nb in skeleton_pts:
+
             if vertex_LUT[nb[0], nb[1]] > 0:
-                # print(f"NB: {nb}")
                 src_id = vertex_LUT[pt[0], pt[1]]
                 trgt_id = vertex_LUT[nb[0], nb[1]]
-                # print(f"srcid: {src_id}")
-                # print(f"trgtid: {trgt_id}")
                 # The idea is to create an edge from pt to nb
                 edges.append((src_id, trgt_id))
     return edges
@@ -93,7 +78,6 @@ def get_cliques(graph, components=False):
 
     # Isolate potential bifurcation points i.e. degree greater than 2
     subg = graph.subgraph(graph.vs.select(_degree_gt=2))
-    # print(subg.vs[0]["coords"])
 
     if components:
         # Get all the connected components
@@ -106,7 +90,7 @@ def get_cliques(graph, components=False):
                 break
             subg = subg.subgraph(subg.vs.select(_degree_gt=1))
         cliques = [clique for clique in subg.maximal_cliques() if 2 < len(clique) < 5]
-        # print(len(cliques))
+
     return subg, cliques
 
 
@@ -129,9 +113,8 @@ def find_new_vertex_neighbors(graph, subg_vs):
 def create_new_vertex(graph, subg_vs):
     new_radius = np.mean(subg_vs["radius"])
     new_coords = np.mean(subg_vs["coords"], axis=0)
-    # print(new_coords)
+
     # coordinates are y,x
-    # new_vertex_info = (new_radius, new_coords, new_coords[0], new_coords[1])
     new_vertex_info = {
         "radius": new_radius,
         "coords": new_coords,
@@ -148,7 +131,6 @@ def class2_filter(graph, subg, clique):
 
     # Add new vertex constructes from the clique
     vertex_info, neighbors = create_new_vertex(graph, subg_vs)
-    # print(vertex)
 
     return [vertex_info, neighbors]
 
@@ -157,16 +139,7 @@ def class2and3_decision(subg, cliques):
     vertices_to_remove = []
     class_two = []
     class_three = []
-    # Visualize
-    # fig, ax = plt.subplots()
-    # visual_style = {}
-    # visual_style["vertex_color"] = "red"
 
-    # temp_len = len(cliques)
-    # print(temp_len)
-    # colors = [()]
-    # idx=0
-    # cnt = 0
     for clique in cliques:
         vertices_to_remove.extend(subg.vs[clique]["id"])
         if len(clique) <= 50:
@@ -174,12 +147,7 @@ def class2and3_decision(subg, cliques):
         else:
             None
             # After observation I believe there is no need for this filter in our dataset
-            # cnt += 1
             # class_three.append(class3_filter(g, gbs, clique))
-        # ig.plot(subg.subgraph(subg.vs[clique]), target=ax, **visual_style)
-        # idx+=1
-    # ax.invert_yaxis()
-    # print(cnt)
 
     return [vertices_to_remove, class_two, class_three]
 
@@ -192,10 +160,6 @@ def class2and3_filters(subg, cliques):
     class_three = []
     vertices_to_remove, class_two, class_three = class2and3_decision(subg, cliques)
 
-    # fig, ax = plt.subplots()
-    # visual_style = {}
-    # visual_style["vertex_color"] = "red"
-
     # Add new vertices from class two
     for vertex_group in class_two:
         vertex_info = vertex_group[0]
@@ -206,21 +170,8 @@ def class2and3_filters(subg, cliques):
             x=vertex_info["x"],
             y=vertex_info["y"],
         )
-        # print(sk_graph.vs[new_v.index].attributes())
+
         new_edges.extend(sorted(tuple([new_v.index, nb]) for nb in neighbors))
-
-        ### Visualize the new nodes
-
-        # for clique in cliques:
-        #     ig.plot(subg.subgraph(subg.vs[clique]), target=ax, **visual_style)
-
-    # temp_g = ig.Graph()
-    # temp_g["name"] = "Temp Graph"
-    # temp_g.add_vertex(name=None, **new_v.attributes())
-    # # print(temp_g.vs[0].attributes())
-    # visual_style["vertex_color"] = "green"
-    # ig.plot(temp_g, target=ax, **visual_style)
-    # ax.invert_yaxis()
 
     return new_edges, vertices_to_remove
 
@@ -232,13 +183,6 @@ def class1_filter(subg, cliques):
     for clique in cliques:
         # Get the original vertices
         orig_graph_vs = sk_graph.vs[subg.vs[clique]["id"]]
-        # print(orig_graph_vs["id"])
-        # print(subg.vs[clique]["id"])
-        # print(subg.vs[clique].select(id=8108))
-        # print(subg.es[0].tuple)
-        # print(graph.get_eid(8108, 8116))
-        # print(graph.es[8568].tuple)
-        # print(orig_graph_vs.es)
 
         # Check to see if the cliques fit in our class
         if any(degree >= 5 for degree in orig_graph_vs.degree()):
@@ -252,15 +196,10 @@ def class1_filter(subg, cliques):
 
         # Sort the vertices based on their weights, remove edge between smallest
         sorted_ids = [id for _, id in sorted(zip(weights, orig_graph_vs))]
-        # test with smaller graphs
-        # t1 = subg.vs[clique].select(id=sorted_ids[0]["id"])
-        # t1 = t1[0].index
-        # t2 = subg.vs[clique].select(id=sorted_ids[1]["id"])
-        # t2 = t2[0].index
-        # edge = (t1, t2)
+
         edge = (sorted_ids[0]["id"], sorted_ids[1]["id"])
         edges_to_remove.append(edge)
-        # print(edges_to_remove)
+
     return edges_to_remove
 
 
@@ -274,12 +213,6 @@ def segment_filter(graph, f_length=2, smoothing=True):
     # Keep segments that are shorter than the filter length
     segments = [segm for segm in segments if len(segm) <= f_length]
 
-    # Test plots
-    # fig, ax = plt.subplots()
-    # visual_style = {}
-    # visual_style["vertex_color"] = "red"
-    # visual_style["vertex_size"] = 4
-
     # Iterate over the segments
     for segm in segments:
         degrees = graph.degree(segm)
@@ -291,16 +224,7 @@ def segment_filter(graph, f_length=2, smoothing=True):
             vertices_to_remove.extend(segm)
             n_of_filtered += len(segm)
 
-            # for seg in segm:
-            #     ig.plot(graph.subgraph(graph.vs[seg]), target=ax, **visual_style)
-
-    # ig.summary(graph)
     graph.delete_vertices(vertices_to_remove)
-
-    # visual_style["vertex_size"] = 1
-    # visual_style["vertex_color"] = "green"
-    # ig.plot(graph, target=ax, **visual_style)
-    # ax.invert_yaxis()
 
     return n_of_filtered
 
@@ -322,10 +246,7 @@ def filter_graph(graph):
 
     # Isolate cliques comprising of potential bifurcation points
     subg, cliques = get_cliques(graph)
-    # print(
-    #     f"Initial potential bifurcations nodes: {len(graph.subgraph(graph.vs.select(_degree_gt=2)).vs)}"
-    # )
-    # print(f"Before filter 1 potential bifurcation nodes: {len(subg.vs)}")
+
     edges_to_remove = class1_filter(subg, cliques)
     graph.delete_edges(edges_to_remove)
     total_removed_edges += len(edges_to_remove)
@@ -334,15 +255,8 @@ def filter_graph(graph):
     # 2. Apply the class 2 filter
 
     subg, cliques = get_cliques(graph, components=True)
-    # print(f"After class 1 filtering: {len(subg.vs)}")
-    # print(len(subg.components()))
-    # print(len([clique for clique in subg.components()]))
-    # print(len([clique for clique in subg.components() if len(clique) > 3]))
 
     edges_to_add, vertices_to_remove = class2and3_filters(subg, cliques)
-
-    # Print summary to see how many nodes were added
-    # ig.summary(graph)
 
     # Remove duplicate edges
     edges_to_add = [edges_to_add for edges_to_add in set(edges_to_add)]
@@ -353,7 +267,6 @@ def filter_graph(graph):
 
     # Delete the id attribute since its not useful anymore
     del graph.vs["id"]
-    # print(graph.vs.attributes())
 
     # Eliminate isolated vertices
     graph.delete_vertices(graph.vs.select(_degree=0))
@@ -366,57 +279,35 @@ def filter_graph(graph):
     print(f"Number of removed vertices: {n_removed_vertices}")
     print(f"Total number of removed vertices: {total_removed_vertices}")
 
-    # Test with smaller graph
-    # ig.summary(subg)
-    # fig, ax = plt.subplots()
-    # # print(min(subg.vs["radius"]))
-    # visual_style = {}
-    # visual_style["vertex_size"] = [rad for rad in subg.vs["radius"]]
-    # ig.plot(subg, target=ax, **visual_style)
-    # ax.invert_yaxis()
-    # subg.delete_edges(edges_to_remove)
-    # ig.summary(subg)
-    # fig, ax = plt.subplots()
-    # # print(min(subg.vs["radius"]))
-    # visual_style = {}
-    # visual_style["vertex_size"] = [rad for rad in subg.vs["radius"]]
-    # ig.plot(subg, target=ax, **visual_style)
-    # ax.invert_yaxis()
-
-    # ig.summary(graph)
-    # fig, ax = plt.subplots()
-    # # print(min(subg.vs["radius"]))
-    # ig.plot(graph, vertex_size=4, target=ax)
-    # ax.invert_yaxis()
-    plt.show()
-
-
-def analyze_simplify_graph(graph):
-    features, edges = GFeatExt.segment_feature_extraction(graph)
-    # print(features[0])
-    # print(edges[0])
-
-    # Visualize the original graph
-    fig, ax = plt.subplots()
-    visual_style = {}
-    visual_style["vertex_size"] = 5
-    # visual_style["vertex_color"] = "green"
-    ig.plot(graph, target=ax, **visual_style)
-    ax.invert_yaxis()
     # plt.show()
+
+
+def analyze_simplify_graph(graph, visualize=False):
+    features, edges = GFeatExt.segment_feature_extraction(graph)
+
+    if visualize:
+        # Visualize the original graph
+        fig, ax = plt.subplots()
+        visual_style = {}
+        visual_style["vertex_size"] = 5
+        # visual_style["vertex_color"] = "green"
+        ig.plot(graph, target=ax, **visual_style)
+        ax.invert_yaxis()
 
     # Simplify the graph using the calculated edges and assign their features
     # Graph is a global variable is its simplified in place
     GFeatExt.save_feature_results(graph, features, edges, simplify_graph=True)
 
-    # Visualize the final simplified graph
-    fig, ax = plt.subplots()
-    visual_style = {}
-    visual_style["vertex_size"] = 5
-    # visual_style["vertex_color"] = "green"
-    ig.plot(graph, target=ax, **visual_style)
-    ax.invert_yaxis()
-    plt.show()
+    if visualize:
+        logger.info("Visualizing the filtered and final simplified graphs")
+        # Visualize the final simplified graph
+        fig, ax = plt.subplots()
+        visual_style = {}
+        visual_style["vertex_size"] = 5
+        # visual_style["vertex_color"] = "green"
+        ig.plot(graph, target=ax, **visual_style)
+        ax.invert_yaxis()
+        plt.show()
 
 
 def main():
@@ -435,7 +326,7 @@ def main():
 
     # Just testing how the graph creation works.
     IMG_SEQ_DIR_PATH = (
-        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0003"
+        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     )
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
@@ -443,51 +334,35 @@ def main():
         return
     skeletons, distance_transform = get_skeletons(segm_images, method="lee")
     skeleton_points = find_centerlines(skeletons[img_ind])
-    # Test 50 points
-    # skeleton_points = skeleton_points[0:50]
+
     skeleton_points_connect = calc_pixel_connectivity(
         skeletons[img_ind], skeleton_points
     )
-    # print(skeleton_points[0:5, :])
-    # print(skeleton_points.shape)
-    # print(distance_transform[0].shape)
 
     # Create the graph
     global sk_graph
     sk_graph = ig.Graph()
     sk_graph["name"] = "Skeleton Graph"
     sk_graph.add_vertices(len(skeleton_points))
-    # sk_graph.vs["v_coords"] = skeleton_points
-    # print(
-    #     f"Before: First five: {skeleton_points[:5, 0]} - Last five: {skeleton_points[-5:,0]}"
-    # )
+
     sk_graph.vs["coords"] = skeleton_points
     sk_graph.vs["y"] = skeleton_points[:, 0]
     sk_graph.vs["x"] = skeleton_points[:, 1]
     # Can extend the radius to the mEDT introduce in VesselVio if needed
     sk_graph.vs["radius"] = distance_transform[img_ind][skeletons[img_ind] != 0]
-    # print(distance_transform[0][skeletons[0] != 0][0])
-    # print(max(distance_transform[0][skeletons[0] != 0]))
-    # plt.imshow(distance_transform[0][skeletons[0] != 0])
-    # plt.colorbar()
-    # print(
-    #     f"After: First five: {sk_graph.vs[:5]["y"]} - Last five: {sk_graph.vs[-5:]["y"]}"
-    # )
 
     # Find and add the edges
     # Create vertex index Lookup table
     vertex_LUT = construct_vID_LUT(skeleton_points, skeletons[img_ind].shape)
     # Find edges
     edges = edge_detection(skeleton_points, vertex_LUT)
-    # edges = [(0, 1), (1, 2), (2, 3), (3, 4), (3, 5)]
+    # Add detected edges
     sk_graph.add_edges(edges)
 
     # Remove loops and multiedges
     sk_graph.simplify()
 
-    # degrees = sk_graph.degree()
-    # print(f"Max vertex degree: {max(degrees)}\nMin vertex degree: {min(degrees)}")
-
+    print("Graph summary before filtering")
     ig.summary(sk_graph)
     print(
         "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
@@ -496,36 +371,20 @@ def main():
     # Simplify the graph and filter unwanted edges and nodes
     filter_graph(sk_graph)
 
+    print("Graph summary after filtering")
     ig.summary(sk_graph)
     print(
         "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     )
 
     # Analyze the graph segments and simplify it further maintaining only bifurcation points
-    analyze_simplify_graph(sk_graph)
+    analyze_simplify_graph(sk_graph, visualize=False)
 
+    print("Graph summary after analysis and simplification - Final Graph")
     ig.summary(sk_graph)
     print(
         "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     )
-
-    # plt.imshow(skeleton_points_connect)
-    # plt.colorbar()
-
-    # sk_graph.layout(layout="auto")
-    # ig.plot(sk_graph)
-    # fig, ax = plt.subplots()
-    # ig.plot(sk_graph, vertex_size=2, target=ax)
-    # ax.invert_yaxis()
-    # # plt.show()
-
-    # # Testing
-    # degrees = sk_graph.degree()
-    # endpoints = [sk_graph.vs[loc].index for loc, deg in enumerate(degrees) if deg == 1]
-    # # fig, ax = plt.subplots()
-    # ig.plot(sk_graph.subgraph(sk_graph.vs[endpoints]), vertex_size=10, target=ax)
-    # ax.invert_yaxis()
-    # plt.show()
 
 
 if __name__ == "__main__":
