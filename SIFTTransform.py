@@ -195,7 +195,7 @@ def check_transform(transform, preEVT, postEVT):
     mi_orig = calc_mutual_information(hist_or)
     print(f"Original Mutual information score: {mi_orig}")
 
-    # Calculate 2D histogram of the preEVT and original postEVT
+    # Calculate 2D histogram of the preEVT
     hist_or, x_edges, y_edges = np.histogram2d(preEVT.ravel(), preEVT.ravel(), bins=20)
     # Calculate Mutual Information for the joint histogram
     mi_own = calc_mutual_information(hist_or)
