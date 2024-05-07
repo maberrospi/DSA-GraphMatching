@@ -406,6 +406,7 @@ def analyze_simplify_graph(graph):
     # plt.show()
 
     # Simplify the graph using the calculated edges and assign their features
+    # Graph is a global variable is its simplified in place
     GFeatExt.save_feature_results(graph, features, edges, simplify_graph=True)
 
     # Visualize the final simplified graph
