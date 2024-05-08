@@ -160,7 +160,7 @@ def display_tranformed(transform, preEVT, postEVT, ret=False):
         return warped_image
 
 
-def check_transform(transform, preEVT, postEVT):
+def check_transform(transform, preEVT, postEVT, verbose=False):
     # The Mutual Information score should be relatively higher
     # when comparing the original and transformed images if the
     # registration yields good results
@@ -187,19 +187,21 @@ def check_transform(transform, preEVT, postEVT):
 
     # Calculate Mutual Information for the joint histogram
     mi_tr = calc_mutual_information(hist)
-    print(f"Transformed Mutual information score: {mi_tr}")
 
     # Calculate 2D histogram of the preEVT and original postEVT
     hist_or, x_edges, y_edges = np.histogram2d(preEVT.ravel(), postEVT.ravel(), bins=20)
     # Calculate Mutual Information for the joint histogram
     mi_orig = calc_mutual_information(hist_or)
-    print(f"Original Mutual information score: {mi_orig}")
 
     # Calculate 2D histogram of the preEVT
     hist_or, x_edges, y_edges = np.histogram2d(preEVT.ravel(), preEVT.ravel(), bins=20)
     # Calculate Mutual Information for the joint histogram
     mi_own = calc_mutual_information(hist_or)
-    print(f"Max Mutual information score: {mi_own}")
+
+    if verbose:
+        print(f"Transformed Mutual information score: {mi_tr}")
+        print(f"Original Mutual information score: {mi_orig}")
+        print(f"Max Mutual information score: {mi_own}")
 
     # Compare the two scores
     if mi_orig < mi_tr:
