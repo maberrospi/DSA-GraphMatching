@@ -310,6 +310,56 @@ def analyze_simplify_graph(graph, visualize=False):
         plt.show()
 
 
+def create_graph(skeleton_img, skeleton_pts, dst_transform):
+    # Create the graph
+    global sk_graph
+    sk_graph = ig.Graph()
+    sk_graph["name"] = "Skeleton Graph"
+    sk_graph.add_vertices(len(skeleton_pts))
+
+    sk_graph.vs["coords"] = skeleton_pts
+    sk_graph.vs["y"] = skeleton_pts[:, 0]
+    sk_graph.vs["x"] = skeleton_pts[:, 1]
+    # Can extend the radius to the mEDT introduce in VesselVio if needed
+    sk_graph.vs["radius"] = dst_transform[skeleton_img != 0]
+
+    # Find and add the edges
+    # Create vertex index Lookup table
+    vertex_LUT = construct_vID_LUT(skeleton_pts, skeleton_img.shape)
+    # Find edges
+    edges = edge_detection(skeleton_pts, vertex_LUT)
+    # Add detected edges
+    sk_graph.add_edges(edges)
+    # Remove loops and multiedges
+    sk_graph.simplify()
+
+    print("Graph summary before filtering")
+    ig.summary(sk_graph)
+    print(
+        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
+    )
+
+    # Simplify the graph and filter unwanted edges and nodes
+    filter_graph(sk_graph)
+
+    print("Graph summary after filtering")
+    ig.summary(sk_graph)
+    print(
+        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
+    )
+
+    # Analyze the graph segments and simplify it further maintaining only bifurcation points
+    analyze_simplify_graph(sk_graph, visualize=False)
+
+    print("Graph summary after analysis and simplification - Final Graph")
+    ig.summary(sk_graph)
+    print(
+        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
+    )
+
+    return sk_graph
+
+
 def main():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
@@ -339,52 +389,8 @@ def main():
         skeletons[img_ind], skeleton_points
     )
 
-    # Create the graph
-    global sk_graph
-    sk_graph = ig.Graph()
-    sk_graph["name"] = "Skeleton Graph"
-    sk_graph.add_vertices(len(skeleton_points))
-
-    sk_graph.vs["coords"] = skeleton_points
-    sk_graph.vs["y"] = skeleton_points[:, 0]
-    sk_graph.vs["x"] = skeleton_points[:, 1]
-    # Can extend the radius to the mEDT introduce in VesselVio if needed
-    sk_graph.vs["radius"] = distance_transform[img_ind][skeletons[img_ind] != 0]
-
-    # Find and add the edges
-    # Create vertex index Lookup table
-    vertex_LUT = construct_vID_LUT(skeleton_points, skeletons[img_ind].shape)
-    # Find edges
-    edges = edge_detection(skeleton_points, vertex_LUT)
-    # Add detected edges
-    sk_graph.add_edges(edges)
-
-    # Remove loops and multiedges
-    sk_graph.simplify()
-
-    print("Graph summary before filtering")
-    ig.summary(sk_graph)
-    print(
-        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
-    )
-
-    # Simplify the graph and filter unwanted edges and nodes
-    filter_graph(sk_graph)
-
-    print("Graph summary after filtering")
-    ig.summary(sk_graph)
-    print(
-        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
-    )
-
-    # Analyze the graph segments and simplify it further maintaining only bifurcation points
-    analyze_simplify_graph(sk_graph, visualize=False)
-
-    print("Graph summary after analysis and simplification - Final Graph")
-    ig.summary(sk_graph)
-    print(
-        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
-    )
+    # Create graph
+    create_graph(skeletons[img_ind], skeleton_points, distance_transform[img_ind])
 
 
 if __name__ == "__main__":
