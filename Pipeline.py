@@ -13,8 +13,10 @@ from Skeletonization import (
     load_images,
     VisualizeSkeletons,
     get_skeletons,
-    vis_skeleton_and_segm,
+    find_centerlines,
 )
+
+from graph_processing import create_graph
 
 # Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
 
@@ -101,7 +103,7 @@ def main():
     sift.display_tranformed(transformation, preEVT, postEVT)
 
     # Check if the transformation quality is better than the original
-    if not sift.check_transform(transformation, preEVT, postEVT):
+    if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
         # The transformation is worse than the original
         print("Using the original post-EVT image")
         final_segm_post = segm_pre_post[1]
@@ -140,6 +142,26 @@ def main():
     bprev.on_clicked(vis_skeletons.prev)
 
     plt.show()
+
+    # 4. Create Graphs
+    skeleton_points = find_centerlines(skeleton_images[0])
+    pre_graph = create_graph(
+        skeleton_images[0],
+        skeleton_points,
+        distance_transform[0],
+        g_name="pre_graph",
+        vis=False,
+        verbose=True,
+    )
+    skeleton_points = find_centerlines(skeleton_images[1])
+    post_graph = create_graph(
+        skeleton_images[1],
+        skeleton_points,
+        distance_transform[1],
+        g_name="post_graph",
+        vis=False,
+        verbose=True,
+    )
 
 
 if __name__ == "__main__":
