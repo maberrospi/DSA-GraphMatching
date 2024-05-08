@@ -310,11 +310,19 @@ def analyze_simplify_graph(graph, visualize=False):
         plt.show()
 
 
-def create_graph(skeleton_img, skeleton_pts, dst_transform):
+def create_graph(
+    skeleton_img, skeleton_pts, dst_transform, g_name=None, vis=False, verbose=True
+):
+
+    if not g_name:
+        g_name = "Temp"
+
+    logger.info(f"Creating graph: {g_name}")
+
     # Create the graph
     global sk_graph
     sk_graph = ig.Graph()
-    sk_graph["name"] = "Skeleton Graph"
+    sk_graph["name"] = g_name
     sk_graph.add_vertices(len(skeleton_pts))
 
     sk_graph.vs["coords"] = skeleton_pts
@@ -342,14 +350,14 @@ def create_graph(skeleton_img, skeleton_pts, dst_transform):
     # Simplify the graph and filter unwanted edges and nodes
     filter_graph(sk_graph)
 
-    print("Graph summary after filtering")
-    ig.summary(sk_graph)
-    print(
-        "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
-    )
+    # print("Graph summary after filtering")
+    # ig.summary(sk_graph)
+    # print(
+    #     "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
+    # )
 
     # Analyze the graph segments and simplify it further maintaining only bifurcation points
-    analyze_simplify_graph(sk_graph, visualize=False)
+    analyze_simplify_graph(sk_graph, visualize=vis)
 
     print("Graph summary after analysis and simplification - Final Graph")
     ig.summary(sk_graph)
@@ -390,7 +398,27 @@ def main():
     )
 
     # Create graph
-    create_graph(skeletons[img_ind], skeleton_points, distance_transform[img_ind])
+    gr = create_graph(
+        skeletons[img_ind],
+        skeleton_points,
+        distance_transform[img_ind],
+        g_name="gr",
+        vis=False,
+        verbose=True,
+    )
+    # skeleton_points = find_centerlines(skeletons[img_ind + 1])
+    # gr1 = create_graph(
+    #     skeletons[img_ind + 1],
+    #     skeleton_points,
+    #     distance_transform[img_ind + 1],
+    #     g_name="gr1",
+    #     vis=False,
+    #     verbose=True,
+    # )
+    # print("G1")
+    # ig.summary(gr)
+    # print("G2")
+    # ig.summary(gr1)
 
 
 if __name__ == "__main__":
