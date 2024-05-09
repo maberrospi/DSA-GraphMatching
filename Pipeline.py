@@ -17,6 +17,7 @@ from Skeletonization import (
 )
 
 from graph_processing import create_graph
+from Segmentation import predict
 
 # Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
 
@@ -78,10 +79,32 @@ def main():
 
     # 2. Segmentation
 
-    IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
-    IMG_SEQ_DIR_PATH = (
-        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
+    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
+    # IMG_SEQ_DIR_PATH = (
+    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
+    # )
+
+    # NOTE: IMG_DIR_PATH and in_img_path must be refering to the same patient
+    segm_output_folder = "Outputs/test"
+    # Clear the segmentation output folder for every run
+    # for root, dirs, files in os.walk(segm_output_folder):
+    #     for f in files:
+    #       os.remove(f)
+    for path in Path(segm_output_folder).glob("*"):
+        if path.is_file():
+            path.unlink()
+            # print(path)
+
+    predict.run_predict(
+        in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+        out_img_path=segm_output_folder,
+        model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+        input_type="sequence",
+        label_type="av",
+        amp=True,
     )
+
+    IMG_SEQ_DIR_PATH = segm_output_folder
     # segm_images = load_images(IMG_MIN_DIR_PATH)
     segm_images1 = load_images(IMG_SEQ_DIR_PATH)
 
