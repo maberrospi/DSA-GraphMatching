@@ -1,15 +1,19 @@
 import argparse
 import logging
 import sys
+
+# print(sys.path)
 from pathlib import Path
 import os
 import nibabel as nib
 import numpy as np
 import torch
+from torchinfo import summary
 from PIL import Image
+import matplotlib.pyplot as plt
 from skimage.transform import resize
 import pydicom
-from .unet import UNet, TemporalUNet, ConvLSTM, ConvGRU
+from unet import UNet, TemporalUNet, ConvLSTM, ConvGRU
 from glob import glob
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -180,6 +184,29 @@ def get_args():
 # fmt: on
 
 
+def get_activation(name, activation):
+    # Function to get activation of a specific layer during the forward pass
+    # The hook signature
+    def hook(model, input, output):
+        activation[name] = output.detach()
+
+    return hook
+
+
+def display_feature_maps(sequence: list):
+    # Plot the feature maps of one seq for reference
+    sq = 8
+    fig, axs = plt.subplots(sq, sq, figsize=(16, 16))
+    col = 0
+    for idx in range(sequence[0].size(0)):
+        if idx % sq == 0:
+            col += 1
+        axs[col - 1, (idx % sq)].imshow(sequence[0][idx])
+        axs[col - 1, (idx % sq)].set_xticks([])
+        axs[col - 1, (idx % sq)].set_yticks([])
+    plt.show()
+
+
 def run_predict(
     in_img_path,
     out_img_path,
@@ -236,19 +263,25 @@ def run_predict(
     net.load_state_dict(torch.load(model, map_location=device))
     logging.info(f"Model loaded from {model}")
 
+    # summary(model=net, input_size=(1, 20, 1, 512, 512))  # B,T,C,H,W
+
     """Segmentation"""
     # test_img = load_image(in_img_path, img_size, img_type=input_type)
     # predict(net, test_img, out_img_path, device=device)
 
-    # dcm_fps = sorted(glob(os.path.join(in_img_path, '**', '*.nii'), recursive=True))
-    dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
-    # dcm_fps = sorted(glob(os.path.join(in_img_path, '**', '*.dcm'), recursive=True))
+    dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True))
+    # dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
     # df_patients = pd.read_csv("/mnt/data2/Dropbox/Ruisheng/PhD/MyManuscripts/CTA-DSA mapping/dsa_removal_annotation_Sijie.csv")
     # df_patients = df_patients[df_patients['operation'].isna()]
     # df_patients = df_patients[df_patients['operation'] == "temp"]
     # patient_ids = df_patients['patient_id'].unique()
     elapsed_per_frame_list = []
     elapsed_per_sequence_list = []
+    up4_list = []
+    activation = {}
+    # Register forward hooks on the layer(s) of choice
+    h1 = net.up4.register_forward_hook(get_activation("up4", activation))
+
     global patient_id
     for idx, fp in enumerate(dcm_fps):
         patient_id = Path(fp).parent.name
@@ -256,11 +289,15 @@ def run_predict(
         #     continue
         logging.info(f"{idx+1}/{len(dcm_fps)}, segmenting: {fp}")
         test_img = load_image(fp, img_size, img_type=input_type)
-        # out_img_path = fp.replace(in_img_path, out_img_path).replace(".nii", ".png")
         out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
-            ".dcm", ".png"
+            ".nii", ".png"
         )
+        # out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
+        #     ".dcm", ".png"
+        # )
         Path(out_img_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Run the forward pass (prediction)
         out_seg, elapsed = segment(net, test_img, device=device)
         elapsed_per_frame_list.append(elapsed / len(test_img))
         elapsed_per_sequence_list.append(elapsed)
@@ -271,6 +308,14 @@ def run_predict(
             Image.fromarray(out_seg[1]).save(out_vein_img_path)
         else:
             Image.fromarray(out_seg[0]).save(out_img_path)
+
+        # Collect the activations for all patient dicoms
+        up4_list.append(activation["up4"].squeeze())
+        # print(activation["up4"].squeeze().shape)
+
+    # Detach the hooks
+    h1.remove()
+
     del patient_id
     logging.info(
         "Average time per frame: {}\u00B1{}".format(
@@ -283,6 +328,8 @@ def run_predict(
         )
     )
     logging.info("Done!")
+
+    return up4_list
 
 
 if __name__ == "__main__":
