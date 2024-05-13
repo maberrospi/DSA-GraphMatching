@@ -20,7 +20,7 @@ from prepareData import prepare_data
 logger = logging.getLogger(__name__)
 
 
-def feat_kp_dscr(preEVT, postEVT, feat_extr="sift"):
+def feat_kp_dscr(preEVT, postEVT, feat_extr="sift", vis=False):
     logger.info("Creating Keypoints and Descriptors")
     # Create SIFT/ORB object
     if feat_extr == "sift":
@@ -32,30 +32,32 @@ def feat_kp_dscr(preEVT, postEVT, feat_extr="sift"):
     postEVT = cv2.cvtColor(postEVT, cv2.COLOR_GRAY2RGB)
     preEVTkp, preEVTdescr = ft_extractor.detectAndCompute(preEVT, None)
     postEVTkp, postEVTdescr = ft_extractor.detectAndCompute(postEVT, None)
-    preEVTwKP = np.copy(preEVT)
-    postEVTwKP = np.copy(postEVT)
 
-    # Disregard the text areas
-    # If the keypoint is in the range of rectangles from the locs
-    # Remove it from the list along with the descriptor
-    # for loc in locs:
-    #     for y in range(loc['ymin'], loc['ymin']+ loc['h']):
-    #         for x in range(loc['xmin'],loc['xmin']+loc['w']):
-    #             if (y,x) in preEVTkp:
-    #               Remove the point and do the same for postEVT
+    if vis:
+        preEVTwKP = np.copy(preEVT)
+        postEVTwKP = np.copy(postEVT)
 
-    cv2.drawKeypoints(preEVT, preEVTkp, preEVTwKP)
-    cv2.drawKeypoints(postEVT, postEVTkp, postEVTwKP)
+        # Disregard the text areas
+        # If the keypoint is in the range of rectangles from the locs
+        # Remove it from the list along with the descriptor
+        # for loc in locs:
+        #     for y in range(loc['ymin'], loc['ymin']+ loc['h']):
+        #         for x in range(loc['xmin'],loc['xmin']+loc['w']):
+        #             if (y,x) in preEVTkp:
+        #               Remove the point and do the same for postEVT
 
-    # Visualise Keypoints on both images
-    fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+        cv2.drawKeypoints(preEVT, preEVTkp, preEVTwKP)
+        cv2.drawKeypoints(postEVT, postEVTkp, postEVTwKP)
 
-    axs[0].set_title("Pre-EVT keypoints")
-    axs[0].imshow(preEVTwKP, cmap="gray")
+        # Visualise Keypoints on both images
+        fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
-    axs[1].set_title("Post-EVT keypoints")
-    axs[1].imshow(postEVTwKP, cmap="gray")
-    # plt.show()
+        axs[0].set_title("Pre-EVT keypoints")
+        axs[0].imshow(preEVTwKP, cmap="gray")
+
+        axs[1].set_title("Post-EVT keypoints")
+        axs[1].imshow(postEVTwKP, cmap="gray")
+        # plt.show()
 
     return preEVTkp, preEVTdescr, postEVTkp, postEVTdescr
 
@@ -93,7 +95,7 @@ def plot_matches(preEVT, preEVTkp, postEVT, postEVTkp, matches):
     # plt.show()
 
 
-def transform_post(preEVTkp, postEVTkp, matches):
+def calculate_transform(preEVTkp, postEVTkp, matches):
     logger.info("Calculating Transformation")
     # Select good matched keypoints
     preEVT_matched_kpts = np.float32([preEVTkp[m[0].queryIdx].pt for m in matches])
@@ -118,7 +120,7 @@ def transform_post(preEVTkp, postEVTkp, matches):
     return H
 
 
-def display_tranformed(transform, preEVT, postEVT, ret=False):
+def apply_transformation(transform, preEVT, postEVT, ret=False, vis=False):
     # Warp image
     warped_image = cv2.warpPerspective(
         postEVT,
@@ -428,11 +430,13 @@ def main():
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
     # prepare_data()
-    prekp, predsc, postkp, postdsc = feat_kp_dscr(preEVT, postEVT, feat_extr="sift")
+    prekp, predsc, postkp, postdsc = feat_kp_dscr(
+        preEVT, postEVT, feat_extr="sift", vis=True
+    )
     matches = find_feat_matches(predsc, postdsc)
     plot_matches(preEVT, prekp, postEVT, postkp, matches)
-    transformation = transform_post(prekp, postkp, matches)
-    display_tranformed(transformation, preEVT, postEVT)
+    transformation = calculate_transform(prekp, postkp, matches)
+    apply_transformation(transformation, preEVT, postEVT, vis=True)
     plt.show()
 
 
