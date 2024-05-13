@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 import sys, os
+import copy
 
 import igraph as ig
 import numpy as np
@@ -9,6 +10,34 @@ from Skeletonization import load_images, get_skeletons, find_centerlines
 import graph_feature_extraction as GFeatExt
 
 logger = logging.getLogger(__name__)
+
+
+def concat_extracted_features(graph, feat_map, inplace=True):
+    # Create an array to store the attributes for every node
+    # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
+    feat_attributes = np.zeros((len(graph.vs), feat_map.size(0)))
+    # print(feat_attributes.shape)
+
+    # Loop through the vertices in the graph and populate the feature attributes
+    for idx, vertex in enumerate(graph.vs):
+        # t = vertex["coords"]
+        coords = np.round(vertex["coords"]).astype(int)
+        v_idx = vertex.index
+
+        feat_attributes[idx, :] = feat_map[:, coords[0], coords[1]]
+
+    # print(t)
+    if inplace:
+        # Add the new attributes to every node
+        for attr in range(feat_attributes.shape[1]):
+            attr_name = "feat_" + str(attr)
+            graph.vs[attr_name] = feat_attributes[:, attr]
+    else:
+        new_graph = copy.deepcopy(graph)
+        for attr in range(feat_attributes.shape[1]):
+            attr_name = "feat_" + str(attr)
+            graph.vs[attr_name] = feat_attributes[:, attr]
+        return new_graph
 
 
 def calc_pixel_connectivity(skeleton, skeleton_pts):

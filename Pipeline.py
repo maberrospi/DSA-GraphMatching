@@ -7,6 +7,7 @@ from matplotlib.widgets import Button
 import cv2
 import numpy as np
 from skimage.transform import resize
+import igraph as ig
 
 import SIFTTransform as sift
 from Skeletonization import (
@@ -15,8 +16,10 @@ from Skeletonization import (
     get_skeletons,
     find_centerlines,
 )
+from graph_processing import create_graph, concat_extracted_features
 
-from graph_processing import create_graph
+# Add Segmentation package path to sys path to fix importing unet
+sys.path.insert(1, os.path.join(sys.path[0], "Segmentation"))
 from Segmentation import predict
 
 # Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
@@ -73,7 +76,7 @@ def main():
         preEVT, postEVT, feat_extr="sift"
     )
     matches = sift.find_feat_matches(predsc, postdsc)
-    sift.plot_matches(preEVT, prekp, postEVT, postkp, matches)
+    # sift.plot_matches(preEVT, prekp, postEVT, postkp, matches)
     transformation = sift.transform_post(prekp, postkp, matches)
     # print(transformation)
 
@@ -84,7 +87,7 @@ def main():
     #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     # )
 
-    # NOTE: IMG_DIR_PATH and in_img_path must be refering to the same patient
+    # NOTE: IMG_DIR_PATH and in_img_path must be refering to the same patient (e.g. R0002)
     segm_output_folder = "Outputs/test"
     # Clear the segmentation output folder for every run
     # for root, dirs, files in os.walk(segm_output_folder):
@@ -95,14 +98,29 @@ def main():
             path.unlink()
             # print(path)
 
-    predict.run_predict(
-        in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+    # Returns the sequence feature maps from the chosen layer (feature extraction)
+    # In our case the chosen layer is "up4" form the model
+    seq_features_list = predict.run_predict(
+        # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+        in_img_path="Niftis/R0002/0",
         out_img_path=segm_output_folder,
         model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
         input_type="sequence",
         label_type="av",
         amp=True,
     )
+
+    # print(len(seq_features_list))
+    # print(seq_features_list[0].size(0))
+
+    # Plot the feature maps of one seq for reference
+    predict.display_feature_maps(seq_features_list)
+    # return
+    # Could come up with a better way of doing this (ensure correct)
+    # Sort it to maintain pre-post map correlation
+    # The list contains two maps, where pre-post are first-second
+    # The maps have a torch tensor format
+    # seq_features_list = sorted(seq_features_list)
 
     IMG_SEQ_DIR_PATH = segm_output_folder
     # segm_images = load_images(IMG_MIN_DIR_PATH)
@@ -185,6 +203,19 @@ def main():
         vis=False,
         verbose=True,
     )
+
+    # 5. Extract features from the segmenation model
+    # and add them as graph attributes
+
+    pre_feat_map = seq_features_list[0]
+    post_feat_map = seq_features_list[1]
+    # print(f"Feature map size: {pre_feat_map.size()}")
+
+    # Pre-EVT graph
+    concat_extracted_features(pre_graph, pre_feat_map, inplace=True)
+    # Post-EVT graph
+    concat_extracted_features(post_graph, post_feat_map, inplace=True)
+    # print(pre_graph.vs[0].attributes())
 
 
 if __name__ == "__main__":
