@@ -1,5 +1,5 @@
 import logging
-import glob
+from glob import glob
 import os
 import sys
 from pathlib import Path
@@ -11,6 +11,12 @@ import pandas as pd
 import nibabel as nib
 import imageio
 from pydicom import dcmread
+
+# Add Segmentation package path to sys path to fix importing unet
+sys.path.insert(1, os.path.join(sys.path[0], "Segmentation"))
+from Segmentation import predict
+from Segmentation.unet import UNet, TemporalUNet, ConvLSTM, ConvGRU
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +41,10 @@ def prepare_data(dicom_dir="Dicoms", nifti_dir="Niftis", minip_dir="Minip"):
     DICOM_DIR = dicom_dir
     NIFTI_DIR = nifti_dir
     MINIP_DIR = minip_dir
-    patient_folders = glob.glob(DICOM_DIR + "/*")
+    patient_folders = glob(DICOM_DIR + "/*")
     logger.info("Converting DSA DICOM files to MinIP NIFTI1 files.")
     for folder in patient_folders:
-        patient_dcms = glob.glob(os.path.join(folder, "*.dcm"))
+        patient_dcms = glob(os.path.join(folder, "*.dcm"))
         logger.info("Converting DSA DICOM files to NIFTI1 files.")
         comp_series = None
         counter = 0
@@ -132,6 +138,105 @@ def prepare_data(dicom_dir="Dicoms", nifti_dir="Niftis", minip_dir="Minip"):
             # print(ds["PatientID"].value)
 
 
+def save_feature_maps(
+    in_img_path,
+    out_img_path,
+    model,
+    input_type="minip",
+    input_format="dicom",
+    label_type="vessel",
+    rnn="ConvGRU",
+    rnn_kernel=1,
+    rnn_layers=2,
+    img_size=512,
+    amp=False,
+):
+    """Global settings"""
+    assert input_type in ["minip", "sequence"], "Invalid input image type"
+    assert input_format in ["dicom", "nifti"], "Invalid input format"
+    assert label_type in ["vessel", "av"], "Invalid label type"
+    n_classes = (1, 2)[label_type == "av"]
+    orig_out_img_path = out_img_path
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device {device}")
+
+    """Set up the network"""
+    if input_type == "minip":
+        net = UNet(n_channels=1, n_classes=n_classes, bilinear=True)
+    else:
+        rnn = (ConvGRU, ConvLSTM)[rnn == "ConvLSTM"]
+        kernel_size = (rnn_kernel, rnn_kernel)
+        net = TemporalUNet(
+            rnn,
+            n_channels=1,
+            kernel_size=kernel_size,
+            num_layers=rnn_layers,
+            n_classes=n_classes,
+            bilinear=True,
+        )
+    net.to(device=device)
+
+    """Load trained model."""
+    net.load_state_dict(torch.load(model, map_location=device))
+    logging.info(f"Model loaded from {model}")
+
+    """Segmentation"""
+    # test_img = load_image(in_img_path, img_size, img_type=input_type)
+    # predict(net, test_img, out_img_path, device=device)
+
+    if input_format == "nifti":
+        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True))
+    elif input_format == "dicom":
+        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
+
+    elapsed_per_frame_list = []
+    elapsed_per_sequence_list = []
+    activation = {}
+    # Register forward hooks on the layer(s) of choice
+    h1 = net.up4.register_forward_hook(predict.get_activation("up4", activation))
+
+    global patient_id
+    for idx, fp in enumerate(dcm_fps):
+        patient_id = Path(fp).parent.name
+        # if patient_id not in patient_ids:
+        #     continue
+        logging.info(f"{idx+1}/{len(dcm_fps)}, segmenting: {fp}")
+        test_img = predict.load_image(fp, img_size, img_type=input_type)
+        if input_format == "nifti":
+            out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
+                ".nii", ".npz"
+            )
+        elif input_format == "dicom":
+            out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
+                ".dcm", ".npz"
+            )
+        Path(out_img_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Run the forward pass (prediction)
+        out_seg, elapsed = predict.segment(net, test_img, device=device)
+        elapsed_per_frame_list.append(elapsed / len(test_img))
+        elapsed_per_sequence_list.append(elapsed)
+        # Save the feature maps to an npz file
+        # Basically you save 64x512x512 feature maps per file
+        np.savez_compressed(out_img_path, feat_maps=activation["up4"].squeeze())
+
+    # Detach the hooks
+    h1.remove()
+
+    del patient_id
+    logging.info(
+        "Average time per frame: {}\u00B1{}".format(
+            np.mean(elapsed_per_frame_list), np.std(elapsed_per_frame_list)
+        )
+    )
+    logging.info(
+        "Average time per sequence: {}\u00B1{}".format(
+            np.mean(elapsed_per_sequence_list), np.std(elapsed_per_sequence_list)
+        )
+    )
+    logging.info("Done!")
+
+
 def main():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
@@ -155,6 +260,18 @@ def main():
     # print(patient_view[10])
     # print(f'Patient ID: {patient_ids[-1]} \nSeries: {patient_info['series_number'].to_list()[-1]}')
     # prepare_data(dicom_dir=DICOM_DIR)
+
+    NIFTI_DIR = "Niftis"
+    FEAT_MAP_DIR = "FeatMaps"
+    # save_feature_maps(
+    #     in_img_path=NIFTI_DIR,
+    #     out_img_path=FEAT_MAP_DIR,
+    #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+    #     input_type="sequence",
+    #     input_format="nifti",
+    #     label_type="av",
+    #     amp=True,
+    # )
 
 
 if __name__ == "__main__":
