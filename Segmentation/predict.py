@@ -173,6 +173,7 @@ def get_args():
     parser.add_argument('out_img_path', default='./out.png', help='Segmentation result image.')
     parser.add_argument('model', type=str, help='Load model from a .pth file')
     parser.add_argument('--input-type', '-i', default='minip', help='Model input - minip or sequence.')
+    parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
     parser.add_argument('--label-type', '-t', default='vessel', help='Label type - vessel (binary) or av (4 classes).')
     parser.add_argument('--rnn', '-r', type=str, default='ConvGRU', help='RNN type: convGRU or convLSTM.')
     parser.add_argument('--rnn_kernel', '-k', type=int, default=1, help='RNN kernel: 1 (1x1) or 3 (3x3).')
@@ -198,7 +199,7 @@ def display_feature_maps(sequence: list):
     sq = 8
     fig, axs = plt.subplots(sq, sq, figsize=(16, 16))
     col = 0
-    for idx in range(sequence[0].size(0)):
+    for idx in range(sequence[0].shape[0]):
         if idx % sq == 0:
             col += 1
         axs[col - 1, (idx % sq)].imshow(sequence[0][idx])
@@ -212,6 +213,7 @@ def run_predict(
     out_img_path,
     model,
     input_type="minip",
+    input_format="dicom",
     label_type="vessel",
     rnn="ConvGRU",
     rnn_kernel=1,
@@ -237,6 +239,7 @@ def run_predict(
 
     """Global settings"""
     assert input_type in ["minip", "sequence"], "Invalid input image type"
+    assert input_format in ["dicom", "nifti"], "Invalid input format"
     assert label_type in ["vessel", "av"], "Invalid label type"
     n_classes = (1, 2)[label_type == "av"]
     orig_out_img_path = out_img_path
@@ -269,8 +272,10 @@ def run_predict(
     # test_img = load_image(in_img_path, img_size, img_type=input_type)
     # predict(net, test_img, out_img_path, device=device)
 
-    dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True))
-    # dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
+    if input_format == "nifti":
+        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True))
+    elif input_format == "dicom":
+        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
     # df_patients = pd.read_csv("/mnt/data2/Dropbox/Ruisheng/PhD/MyManuscripts/CTA-DSA mapping/dsa_removal_annotation_Sijie.csv")
     # df_patients = df_patients[df_patients['operation'].isna()]
     # df_patients = df_patients[df_patients['operation'] == "temp"]
@@ -289,12 +294,14 @@ def run_predict(
         #     continue
         logging.info(f"{idx+1}/{len(dcm_fps)}, segmenting: {fp}")
         test_img = load_image(fp, img_size, img_type=input_type)
-        out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
-            ".nii", ".png"
-        )
-        # out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
-        #     ".dcm", ".png"
-        # )
+        if input_format == "nifti":
+            out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
+                ".nii", ".png"
+            )
+        elif input_format == "dicom":
+            out_img_path = fp.replace(in_img_path, orig_out_img_path).replace(
+                ".dcm", ".png"
+            )
         Path(out_img_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Run the forward pass (prediction)
@@ -310,7 +317,7 @@ def run_predict(
             Image.fromarray(out_seg[0]).save(out_img_path)
 
         # Collect the activations for all patient dicoms
-        up4_list.append(activation["up4"].squeeze())
+        up4_list.append(activation["up4"].squeeze().numpy())
         # print(activation["up4"].squeeze().shape)
 
     # Detach the hooks
