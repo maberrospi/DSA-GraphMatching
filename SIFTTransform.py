@@ -37,15 +37,6 @@ def feat_kp_dscr(preEVT, postEVT, feat_extr="sift", vis=False):
         preEVTwKP = np.copy(preEVT)
         postEVTwKP = np.copy(postEVT)
 
-        # Disregard the text areas
-        # If the keypoint is in the range of rectangles from the locs
-        # Remove it from the list along with the descriptor
-        # for loc in locs:
-        #     for y in range(loc['ymin'], loc['ymin']+ loc['h']):
-        #         for x in range(loc['xmin'],loc['xmin']+loc['w']):
-        #             if (y,x) in preEVTkp:
-        #               Remove the point and do the same for postEVT
-
         cv2.drawKeypoints(preEVT, preEVTkp, preEVTwKP)
         cv2.drawKeypoints(postEVT, postEVTkp, postEVTwKP)
 
@@ -62,50 +53,77 @@ def feat_kp_dscr(preEVT, postEVT, feat_extr="sift", vis=False):
     return preEVTkp, preEVTdescr, postEVTkp, postEVTdescr
 
 
-def find_feat_matches(preEVTdescr, postEVTdescr):
+def find_feat_matches(preEVTdescr, postEVTdescr, feat_extr="sift"):
     logger.info("Finding Descriptor Matches")
     # Initialize Brute Force matcher
-    bf = cv2.BFMatcher()
-    matches = bf.knnMatch(preEVTdescr, postEVTdescr, k=2)
+    if feat_extr == "sift":
+        bf = cv2.BFMatcher.create()
+        matches = bf.knnMatch(preEVTdescr, postEVTdescr, k=2)
 
-    # Apply ratio test as per Lowe - Original SIFT paper
-    good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
-            good_matches.append([m])
+        # Apply ratio test as per Lowe - Original SIFT paper
+        good_matches = []
+        for m, n in matches:
+            if m.distance < 0.75 * n.distance:
+                good_matches.append([m])
+    elif feat_extr == "orb":
+        bf = cv2.BFMatcher.create(cv2.NORM_HAMMING, crossCheck=True)
+        matches = bf.match(preEVTdescr, postEVTdescr)
 
+        # Sort them from lowest to highest distance
+        good_matches = sorted(matches, key=lambda x: x.distance)
+
+    # print(good_matches)
     return good_matches
 
 
-def plot_matches(preEVT, preEVTkp, postEVT, postEVTkp, matches):
+def plot_matches(preEVT, preEVTkp, postEVT, postEVTkp, matches, feat_extr="sift"):
     # Draw matches and plot matches images
-    Matchesimg = cv2.drawMatchesKnn(
-        preEVT,
-        preEVTkp,
-        postEVT,
-        postEVTkp,
-        matches,
-        None,
-        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-    )
+    if feat_extr == "sift":
+        Matchesimg = cv2.drawMatchesKnn(
+            preEVT,
+            preEVTkp,
+            postEVT,
+            postEVTkp,
+            matches,
+            None,
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        )
+        title = "SIFT Matches"
+    elif feat_extr == "orb":
+        Matchesimg = cv2.drawMatches(
+            preEVT,
+            preEVTkp,
+            postEVT,
+            postEVTkp,
+            matches,
+            None,
+            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        )
+        title = "ORB Matches"
 
     plt.figure(figsize=(10, 6))
     plt.imshow(Matchesimg)
-    plt.title("SIFT Matches")
+    plt.title(f"{title}")
     # plt.show()
 
 
-def calculate_transform(preEVTkp, postEVTkp, matches):
+def calculate_transform(preEVTkp, postEVTkp, matches, feat_extr="sift"):
     logger.info("Calculating Transformation")
-    # Select good matched keypoints
-    preEVT_matched_kpts = np.float32([preEVTkp[m[0].queryIdx].pt for m in matches])
-    postEVT_matched_kpts = np.float32([postEVTkp[m[0].trainIdx].pt for m in matches])
+    if feat_extr == "sift":
+        # Select good matched keypoints
+        preEVT_matched_kpts = np.float32([preEVTkp[m[0].queryIdx].pt for m in matches])
+        postEVT_matched_kpts = np.float32(
+            [postEVTkp[m[0].trainIdx].pt for m in matches]
+        )
+    elif feat_extr == "orb":
+        preEVT_matched_kpts = np.float32([preEVTkp[m.queryIdx].pt for m in matches])
+        postEVT_matched_kpts = np.float32([postEVTkp[m.trainIdx].pt for m in matches])
     # print(preEVT_matched_kpts.shape)
     # print(postEVT_matched_kpts.shape)
 
     # Compute homography - RANSAC is built-in this function (Detects outliers and removes them)
     H, status = cv2.findHomography(
-        postEVT_matched_kpts, preEVT_matched_kpts, cv2.RANSAC, 5.0
+        postEVT_matched_kpts, preEVT_matched_kpts, cv2.RANSAC, 5.0  # orig 5.0
     )
 
     # Tested the affine transformation as well -> Seemingly worse results
@@ -258,6 +276,18 @@ def load_img(img_path):
     return img
 
 
+def load_pre_post_imgs(img_paths: list) -> list:
+    images = []
+    for cnt, path in enumerate(img_paths):
+        pre_or_post = Path(path).stem.split("_")[-1]
+        if cnt == 1 and pre_or_post == "pre":
+            images.insert(0, load_img(path))
+        else:
+            images.append(load_img(path))
+
+    return images
+
+
 def remove_borders(preevt, postevt):
     # If the top left pixel is not black there is likely no boundary
     if preevt[0, 0] != 0 and postevt[0, 0] != 0:
@@ -384,58 +414,35 @@ def main():
     # postEVT = cv2.imread("images/PostEVTcrop.png", cv2.COLOR_BGR2GRAY)
     # preEVT = cv2.cvtColor(preEVT, cv2.COLOR_BGR2GRAY)
     # postEVT = cv2.cvtColor(postEVT, cv2.COLOR_BGR2GRAY)
-    IMG_DIR_PATH = "Minip/R0008/0"
-    # IMG_DIR_PATH = "Niftis/R0001/0"
-    images_path = load_img_dir(IMG_DIR_PATH, img_type="minip")
+    # prepare_data()
+    # IMG_DIR_PATH = "Minipv2/R0030/0"
+    IMG_DIR_PATH = "Niftisv2/R0030/0"
+    images_path = load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:
         return
-    images = []
-    for path in images_path:
-        images.append(load_img(path))
+    # Load the pre and post images in a list
+    images = load_pre_post_imgs(images_path)
+
     OrigpreEVT = images[0]
     OrigpostEVT = images[1]
 
-    # for path in images_path:
-    #     print(f"Images: {path}")
-
-    # Remove the text areas from the images
-    # preEVT[30:130, :135] = preEVT[0, 0]
-    # preEVT[890:990, :150] = preEVT[0, 0]
-    # preEVT[925:990, 945:] = preEVT[0, 0]
-    # postEVT[30:130, :135] = postEVT[0, 0]
-    # postEVT[890:990, :150] = postEVT[0, 0]
-    # postEVT[925:990, 945:] = postEVT[0, 0]
-
-    # nobordpreEVT, nobordpostEVT = remove_borders(OrigpreEVT, OrigpostEVT)
-    # preEVT, postEVT = remove_borders(OrigpreEVT, OrigpostEVT)
-    # plt.imshow(nobordpreEVT, cmap="gray")
-    # plt.show()
-    # preEVT, postEVT, locations = remove_unwanted_text(nobordpreEVT, nobordpostEVT)
-
-    # Replaced order of unwanted text and border
+    # Remove unwanted text and borders - the order must remain as is
     notextpreEVT, notextpostEVT, locations = remove_unwanted_text(
         OrigpreEVT, OrigpostEVT
     )
     preEVT, postEVT = remove_borders(notextpreEVT, notextpostEVT)
 
-    # preEVT, postEVT, locations = remove_unwanted_text(OrigpreEVT, OrigpostEVT)
-    # preEVT = OrigpreEVT
-    # postEVT = OrigpostEVT
-    # print(locations[0]["xmin"])
-
-    # cv2.imshow("PreEVT", preEVT)
-    # plt.imshow(preEVT, cmap="gray")
-    # plt.show()
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    # prepare_data()
+    # Calculate the keypoints and their feature descriptors
+    feature_extractor = "sift"
     prekp, predsc, postkp, postdsc = feat_kp_dscr(
-        preEVT, postEVT, feat_extr="sift", vis=True
+        preEVT, postEVT, feat_extr=feature_extractor, vis=True
     )
-    matches = find_feat_matches(predsc, postdsc)
-    plot_matches(preEVT, prekp, postEVT, postkp, matches)
-    transformation = calculate_transform(prekp, postkp, matches)
+    matches = find_feat_matches(predsc, postdsc, feat_extr=feature_extractor)
+    plot_matches(preEVT, prekp, postEVT, postkp, matches, feat_extr=feature_extractor)
+    transformation = calculate_transform(
+        prekp, postkp, matches, feat_extr=feature_extractor
+    )
     apply_transformation(transformation, preEVT, postEVT, vis=True)
     plt.show()
 
