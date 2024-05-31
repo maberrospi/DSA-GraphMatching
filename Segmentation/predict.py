@@ -12,6 +12,7 @@ from torchinfo import summary
 from PIL import Image
 import matplotlib.pyplot as plt
 from skimage.transform import resize
+from skimage.metrics import structural_similarity as ssim
 import pydicom
 from unet import UNet, TemporalUNet, ConvLSTM, ConvGRU
 from glob import glob
@@ -171,6 +172,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
     parser.add_argument('in_img_path', help='Input image to be segmented.')
     parser.add_argument('out_img_path', default='./out.png', help='Segmentation result image.')
+    parser.add_argument('ft_out_img_path', default='FeatMaps', help='Directory to save feature maps.')
     parser.add_argument('model', type=str, help='Load model from a .pth file')
     parser.add_argument('--input-type', '-i', default='minip', help='Model input - minip or sequence.')
     parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
@@ -180,7 +182,8 @@ def get_args():
     parser.add_argument('--rnn_layers', '-n', type=int, default=2, help='Number of RNN layers.')
     parser.add_argument('--img_size', '-s', type=float, default=512, help='Targe image size for resizing images')
     parser.add_argument('--amp', action='store_true', default=False, help='Use mixed precision.')
-
+    parser.add_argument('--save_ft_maps', action='store_true', default=False, help='Save the feature maps.')
+    
     return parser.parse_args()
 # fmt: on
 
@@ -208,9 +211,26 @@ def display_feature_maps(sequence: list):
     plt.show()
 
 
+def calc_ft_map_sim(feat_map):
+    # Calculate similarity between feature maps
+    corr_matrix = np.zeros((feat_map.shape[0], feat_map.shape[0]))
+    for i in range(feat_map.shape[0]):
+        map1 = feat_map[i, :, :]
+        for j in range(feat_map.shape[0]):
+            map2 = feat_map[j, :, :]
+            # Structural similarity index (SSIM)
+            ssim_temp = ssim(map1, map2, data_range=map2.max() - map2.min())
+            corr_matrix[i, j] = ssim_temp
+    corr_matrix = np.where(corr_matrix > 0.85, corr_matrix, 0)
+    plt.imshow(corr_matrix, interpolation="nearest")
+    plt.colorbar()
+    plt.show()
+
+
 def run_predict(
     in_img_path,
     out_img_path,
+    ft_out_img_path,
     model,
     input_type="minip",
     input_format="dicom",
@@ -220,6 +240,7 @@ def run_predict(
     rnn_layers=2,
     img_size=512,
     amp=False,
+    save_ft_maps=False,
 ):
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     logging.basicConfig(
@@ -243,6 +264,7 @@ def run_predict(
     assert label_type in ["vessel", "av"], "Invalid label type"
     n_classes = (1, 2)[label_type == "av"]
     orig_out_img_path = out_img_path
+    orig_ft_out_img_path = ft_out_img_path
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device {device}")
 
@@ -282,10 +304,11 @@ def run_predict(
     # patient_ids = df_patients['patient_id'].unique()
     elapsed_per_frame_list = []
     elapsed_per_sequence_list = []
-    up4_list = []
-    activation = {}
-    # Register forward hooks on the layer(s) of choice
-    h1 = net.up4.register_forward_hook(get_activation("up4", activation))
+    if save_ft_maps:
+        up4_list = []
+        activation = {}
+        # Register forward hooks on the layer(s) of choice
+        h1 = net.up4.register_forward_hook(get_activation("up4", activation))
 
     global patient_id
     for idx, fp in enumerate(dcm_fps):
@@ -316,12 +339,27 @@ def run_predict(
         else:
             Image.fromarray(out_seg[0]).save(out_img_path)
 
-        # Collect the activations for all patient dicoms
-        up4_list.append(activation["up4"].squeeze().numpy())
-        # print(activation["up4"].squeeze().shape)
+        if save_ft_maps:
+            logging.info(f"{idx+1}/{len(dcm_fps)}, saving feature map: {fp}")
+            if input_format == "nifti":
+                out_img_path = fp.replace(in_img_path, orig_ft_out_img_path).replace(
+                    ".nii", ".npz"
+                )
+            elif input_format == "dicom":
+                out_img_path = fp.replace(in_img_path, orig_ft_out_img_path).replace(
+                    ".dcm", ".npz"
+                )
+            Path(out_img_path).parent.mkdir(parents=True, exist_ok=True)
+            # Collect the activations for all patient dicoms
+            up4_list.append(activation["up4"].squeeze().numpy())
+            # print(activation["up4"].squeeze().shape)
+            # Save the feature maps to an npz file
+            # Basically you save 64x512x512 feature maps per file
+            np.savez_compressed(out_img_path, feat_maps=activation["up4"].squeeze())
 
-    # Detach the hooks
-    h1.remove()
+    if save_ft_maps:
+        # Detach the hooks
+        h1.remove()
 
     del patient_id
     logging.info(
