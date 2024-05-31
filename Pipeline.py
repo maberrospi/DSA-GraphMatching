@@ -7,6 +7,7 @@ from matplotlib.widgets import Button
 import cv2
 import numpy as np
 from skimage.transform import resize
+from scipy.spatial import distance
 import igraph as ig
 
 import SIFTTransform as sift
@@ -16,7 +17,12 @@ from Skeletonization import (
     get_skeletons,
     find_centerlines,
 )
-from graph_processing import create_graph, concat_extracted_features
+from graph_processing import (
+    create_graph,
+    concat_extracted_features,
+    concat_extracted_features_v2,
+)
+import graph_matching as gm
 
 # Add Segmentation package path to sys path to fix importing unet
 sys.path.insert(1, os.path.join(sys.path[0], "Segmentation"))
@@ -25,7 +31,7 @@ from Segmentation import predict
 # Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
 
 
-def main():
+def main(load_segs=True):
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
         os.mkdir("log")
@@ -45,16 +51,21 @@ def main():
     # preEVT = cv2.imread("images/preEVTcrop.png", cv2.COLOR_BGR2GRAY)
     # postEVT = cv2.imread("images/PostEVTcrop.png", cv2.COLOR_BGR2GRAY)
     # IMG_DIR_PATH = "Minip/R0011/0"
-    IMG_DIR_PATH = "Niftis/R0002/0"
+    # Pat. 18 and 30 are early ICA blockages
+    pat_id = "R0002"
+    pat_ori = "0"
+    IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
     images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:
         return
 
     # Load images from paths
-    images = []
-    for path in images_path:
-        images.append(sift.load_img(path))
+    # images = []
+    # for path in images_path:
+    #     images.append(sift.load_img(path))
+    images = sift.load_pre_post_imgs(images_path)
+
     OrigpreEVT = images[0]
     OrigpostEVT = images[1]
 
@@ -71,90 +82,110 @@ def main():
     # postEVT = resize(postEVT, (newW, newH), anti_aliasing=True, preserve_range=True)
     # preEVT = preEVT.astype(np.uint8)
     # postEVT = postEVT.astype(np.uint8)
-
+    feature_extractor = "sift"  # choose sift or orb
     prekp, predsc, postkp, postdsc = sift.feat_kp_dscr(
-        preEVT, postEVT, feat_extr="sift"
+        preEVT, postEVT, feat_extr=feature_extractor
     )
-    matches = sift.find_feat_matches(predsc, postdsc)
-    # sift.plot_matches(preEVT, prekp, postEVT, postkp, matches)
-    transformation = sift.transform_post(prekp, postkp, matches)
+    matches = sift.find_feat_matches(predsc, postdsc, feat_extr=feature_extractor)
+    # sift.plot_matches(preEVT, prekp, postEVT, postkp, matches,feat_extr=feature_extractor)
+    transformation = sift.calculate_transform(
+        prekp, postkp, matches, feat_extr=feature_extractor
+    )
     # print(transformation)
 
     # 2. Segmentation
 
-    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
-    # IMG_SEQ_DIR_PATH = (
-    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
-    # )
+    if load_segs:
+        # If True we assume that the feature maps will also be loaded
+        IMG_MIN_DIR_PATH = (
+            "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
+        )
+        IMG_SEQ_DIR_PATH = (
+            "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
+        )
 
-    # NOTE: IMG_DIR_PATH and in_img_path must be refering to the same patient (e.g. R0002)
-    segm_output_folder = "Outputs/test"
-    # Clear the segmentation output folder for every run
-    # for root, dirs, files in os.walk(segm_output_folder):
-    #     for f in files:
-    #       os.remove(f)
-    for path in Path(segm_output_folder).glob("*"):
-        if path.is_file():
-            path.unlink()
-            # print(path)
+        FEAT_MAP_DIR_PATH = "FeatMapsv2/" + pat_id + "/" + pat_ori
+        feat_map_pre_post = []
 
-    # Returns the sequence feature maps from the chosen layer (feature extraction)
-    # In our case the chosen layer is "up4" form the model
-    seq_features_list = predict.run_predict(
-        # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-        in_img_path="Niftis/R0002/0",
-        out_img_path=segm_output_folder,
-        model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-        input_type="sequence",
-        label_type="av",
-        amp=True,
-    )
+    else:
+        # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
+        segm_output_folder = "Outputs/test"
+        # Clear the segmentation output folder for every run
+        # for root, dirs, files in os.walk(segm_output_folder):
+        #     for f in files:
+        #       os.remove(f)
+        for path in Path(segm_output_folder).glob("*"):
+            if path.is_file():
+                path.unlink()
+                # print(path)
 
-    # print(len(seq_features_list))
-    # print(seq_features_list[0].size(0))
+        # Returns the sequence feature maps from the chosen layer (feature extraction)
+        # In our case the chosen layer is "up4" form the model
+        # Doesn't work with mrclean dir structure yet.
+        # Need to change this to make sure pre and post are not reversed
+        feat_map_pre_post = predict.run_predict(
+            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+            in_img_path=IMG_DIR_PATH,
+            out_img_path=segm_output_folder,
+            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+            input_type="sequence",
+            input_format="nifti",
+            label_type="av",
+            amp=True,
+        )
 
-    # Plot the feature maps of one seq for reference
-    predict.display_feature_maps(seq_features_list)
-    # return
-    # Could come up with a better way of doing this (ensure correct)
-    # Sort it to maintain pre-post map correlation
-    # The list contains two maps, where pre-post are first-second
-    # The maps have a torch tensor format
-    # seq_features_list = sorted(seq_features_list)
+        # Plot the feature maps of one seq for reference
+        predict.display_feature_maps(feat_map_pre_post)
+        # Could come up with a better way of doing this (ensure correct)
+        # Sort it to maintain pre-post map correlation
+        # The list contains two maps, where pre-post are first-second
+        # The maps have a torch tensor format
+        IMG_SEQ_DIR_PATH = segm_output_folder
 
-    IMG_SEQ_DIR_PATH = segm_output_folder
     # segm_images = load_images(IMG_MIN_DIR_PATH)
     segm_images1 = load_images(IMG_SEQ_DIR_PATH)
 
-    # Find corresponding pre and post images from the segmentations
+    # Find corresponding pre and post images from the segmentations and feat maps
     segm_pre_post = []
-    for path in images_path:
-        # print(f"Images: {Path(path).stem}")
-        for segm in segm_images1:
-            if (
-                Path(path).stem == Path(segm).stem.rsplit("_", 1)[0]
-                and Path(segm).stem.rsplit("_", 1)[1] == "artery"
-            ):
+    for segm in segm_images1:
+        if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+            if Path(segm).stem.rsplit("_")[1] == "pre":
+                pre = True
+                segm_pre_post.insert(0, sift.load_img(segm))
+            else:
+                pre = False
                 segm_pre_post.append(sift.load_img(segm))
-                break
 
-    # for segm in segm_images1:
-    #     print(f"Segmentations: {Path(segm).stem.rsplit("_",1)[0]}")
-
-    sift.display_tranformed(transformation, preEVT, postEVT)
+            if load_segs:
+                # The feature map dir has the same structure as the sequence dir
+                # and the same file name. So replace the .png extension with npz
+                # and read the appropriate feature maps
+                feature_maps_path = segm.replace(
+                    IMG_SEQ_DIR_PATH, FEAT_MAP_DIR_PATH
+                ).replace("_artery.png", ".npz")
+                # Load npz file
+                feature_maps = np.load(feature_maps_path)
+                if pre:
+                    feat_map_pre_post.insert(0, feature_maps["feat_maps"])
+                else:
+                    feat_map_pre_post.append(feature_maps["feat_maps"])
 
     # Check if the transformation quality is better than the original
     if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
         # The transformation is worse than the original
         print("Using the original post-EVT image")
         final_segm_post = segm_pre_post[1]
+        tr_postEVT = postEVT
     else:
+        tr_postEVT = sift.apply_transformation(
+            transformation, preEVT, postEVT, ret=True, vis=True
+        )
         # Scale transformation matrix for segmentation image size
         scale_matrix = np.array([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 1]])
         transformation = scale_matrix @ transformation @ np.linalg.inv(scale_matrix)
         # Warp and display the segmentations
-        final_segm_post = sift.display_tranformed(
-            transformation, segm_pre_post[0], segm_pre_post[1], ret=True
+        final_segm_post = sift.apply_transformation(
+            transformation, segm_pre_post[0], segm_pre_post[1], ret=True, vis=True
         )
 
     # 3. Skeletonization
@@ -207,16 +238,158 @@ def main():
     # 5. Extract features from the segmenation model
     # and add them as graph attributes
 
-    pre_feat_map = seq_features_list[0]
-    post_feat_map = seq_features_list[1]
-    # print(f"Feature map size: {pre_feat_map.size()}")
+    pre_feat_map = feat_map_pre_post[0]
+    post_feat_map = feat_map_pre_post[1]
+    # predict.display_feature_maps(feat_map_pre_post)
 
+    # Use the feature descriptors calculated in a similar way to SIFT
+    # Given that keypoints are the nodes of the two graphs
+    # This does not offer improve performance qualitatively(Optional)
+    # Save for imaging
+    # pre_kpts = [(float(pt[0]), float(pt[1])) for pt in pre_graph.vs["coords"]]
+    # post_kpts = [(float(pt[0]), float(pt[1])) for pt in post_graph.vs["coords"]]
+    # pre_feat_matrix, post_feat_matrix = gm.create_sift_feat_matrix(
+    #     preEVT, tr_postEVT, pre_graph, post_graph
+    # )
+
+    # return
+    # Calculate feature map similarity (Optional)
+    # predict.calc_ft_map_sim(pre_feat_map)
+    # predict.calc_ft_map_sim(post_feat_map)
+
+    # print(f"Feature map size: {pre_feat_map.size()}")
+    # print(f"Feature map shape: {pre_feat_map.shape}")
+
+    # # Pre-EVT graph
+    # concat_extracted_features(pre_graph, pre_feat_map, inplace=True)
+    # # Post-EVT graph
+    # concat_extracted_features(post_graph, post_feat_map, inplace=True)
+    # # print(pre_graph.vs[0].attributes())
+
+    # Test averaging the neighborhood (3x3) or (5x5) values for the features
     # Pre-EVT graph
-    concat_extracted_features(pre_graph, pre_feat_map, inplace=True)
+    concat_extracted_features_v2(pre_graph, pre_feat_map, inplace=True)
     # Post-EVT graph
-    concat_extracted_features(post_graph, post_feat_map, inplace=True)
+    concat_extracted_features_v2(post_graph, post_feat_map, inplace=True)
     # print(pre_graph.vs[0].attributes())
+
+    # Save for imaging
+    pre_kpts = [(float(pt[0]), float(pt[1])) for pt in pre_graph.vs["coords"]]
+    post_kpts = [(float(pt[0]), float(pt[1])) for pt in post_graph.vs["coords"]]
+
+    # Delete the coords attribute before calculating similarity
+    del pre_graph.vs["coords"]
+    del post_graph.vs["coords"]
+
+    # Find min max radius of all nodes in the graphs for normalization
+    pre_r_avg, pre_r_max, pre_r_min, pre_r_std = gm.calc_graph_radius_info(pre_graph)
+    print(
+        f"R-Avg: {pre_r_avg}, R-Max: {pre_r_max}, R-Min: {pre_r_min}, R-Std: {pre_r_std}"
+    )
+    post_r_avg, post_r_max, post_r_min, post_r_std = gm.calc_graph_radius_info(
+        post_graph
+    )
+    print(
+        f"R-Avg: {post_r_avg}, R-Max: {post_r_max}, R-Min: {post_r_min}, R-Std: {post_r_std}"
+    )
+    r_norm_max = pre_r_max if pre_r_max > post_r_max else post_r_max
+    r_norm_min = pre_r_min if pre_r_min < post_r_min else post_r_min
+
+    # Normalize x,y and radius features - Prevent blowup with similarity mat
+    pre_graph.vs["x"] = [x / skeleton_images[0].shape[1] for x in pre_graph.vs["x"]]
+    pre_graph.vs["y"] = [y / skeleton_images[0].shape[0] for y in pre_graph.vs["y"]]
+    post_graph.vs["x"] = [x / skeleton_images[1].shape[1] for x in post_graph.vs["x"]]
+    post_graph.vs["y"] = [y / skeleton_images[1].shape[0] for y in post_graph.vs["y"]]
+    # Test assigning a larger weight to the position of the nodes
+    # pre_graph.vs["x"] = [
+    #     32 * (x / skeleton_images[0].shape[1]) for x in pre_graph.vs["x"]
+    # ]
+    # pre_graph.vs["y"] = [
+    #     32 * (y / skeleton_images[0].shape[0]) for y in pre_graph.vs["y"]
+    # ]
+    # post_graph.vs["x"] = [
+    #     32 * (x / skeleton_images[1].shape[1]) for x in post_graph.vs["x"]
+    # ]
+    # post_graph.vs["y"] = [
+    #     32 * (y / skeleton_images[1].shape[0]) for y in post_graph.vs["y"]
+    # ]
+    # Min-max normalization of radii
+    pre_graph.vs["radius"] = [
+        (r - r_norm_min) / (r_norm_max - r_norm_min) for r in pre_graph.vs["radius"]
+    ]
+    post_graph.vs["radius"] = [
+        (r - r_norm_min) / (r_norm_max - r_norm_min) for r in post_graph.vs["radius"]
+    ]
+
+    # Test using only the extracted features
+    # del pre_graph.vs["x"]
+    # del post_graph.vs["x"]
+    # del pre_graph.vs["y"]
+    # del post_graph.vs["y"]
+    # del pre_graph.vs["radius"]
+    # del post_graph.vs["radius"]
+
+    # Create a feature matrices from all the node attributes
+    pre_feat_matrix = gm.create_feat_matrix(pre_graph)
+    post_feat_matrix = gm.create_feat_matrix(post_graph)
+
+    pre_feat_avg, pre_feat_max, pre_feat_min, pre_feat_std = gm.calc_feat_matrix_info(
+        pre_feat_matrix
+    )
+    post_feat_avg, post_feat_max, post_feat_min, post_feat_std = (
+        gm.calc_feat_matrix_info(post_feat_matrix)
+    )
+    print(
+        f"Avg: {pre_feat_avg}, Max: {pre_feat_max}, Min: {pre_feat_min}, Std: {pre_feat_std}"
+    )
+    print(
+        f"Avg: {post_feat_avg}, Max: {post_feat_max}, Min: {post_feat_min}, Std: {post_feat_std}"
+    )
+
+    # Calculate the node similarity matrix
+    sim_matrix = gm.calc_similarity(pre_feat_matrix, post_feat_matrix)
+
+    # Calculate the assignment matrix
+    # Orig tau: 100 Orig iter: 250 for sinkhorn
+    assignment_mat = gm.calc_assignment_matrix(
+        sim_matrix, tau=10, iter=250, method="sinkhorn"
+    )
+
+    # Get the maximum argument for each row (node)
+    matchings = np.argmax(assignment_mat, axis=1)
+
+    # Test masking based on Euclidean distance
+    feat_dist = distance.cdist(pre_feat_matrix, post_feat_matrix, "euclidean")
+    # Get matchings based on minimum euclidean distance
+    matchings = np.argmin(feat_dist, axis=1)
+    thresh = 1
+    masked = np.where(
+        [feat_dist[i, j] < thresh for i, j in zip([*range(len(matchings))], matchings)],
+        1,
+        0,
+    ).tolist()
+    # masked = None
+
+    # Draw keypoints and then their matches
+    # Drawing the matches results in an incomprehensable visual because of the large number of nodes
+    # gm.draw_keypoints(preEVT, tr_postEVT, pre_kpts, post_kpts)
+    gm.draw_matches(preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, mask=masked)
+    # gm.draw_matches_animated(
+    #     preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, save_fig=False
+    # )
+
+    ### Spectral matching - Cannot use atm because not enough memory to create aff matrix.
+
+    # # Calculate affinity matrix
+    # K = gm.calc_affinity_matrix(pre_graph, post_graph)
+
+    # # Solve using spectral matching
+    # matchings = gm.spectral_matcher(K)
+
+    # gm.draw_matches_animated(
+    #     preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, save_fig=False
+    # )
 
 
 if __name__ == "__main__":
-    main()
+    main(load_segs=True)
