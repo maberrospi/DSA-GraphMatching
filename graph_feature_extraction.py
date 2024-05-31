@@ -60,7 +60,7 @@ def interpolate_segm(point_coords):
 
 def calc_length(coords):
     # EDT calculations for segment splines
-    # I believe we calculate the ED between all coordinates
+    # Calculate the ED between all coordinates
     # and sum it up to recover an approximate length
     deltas = coords[0:-1] - coords[1:]
     # print(coords.shape)
