@@ -20,7 +20,9 @@ def load_images(img_dir_path):
         logger.warning("Path directory {} does not exist".format(img_dir_path))
         return
     logger.info("Loading images from {}".format(img_dir_path))
-    images = sorted(glob.glob(os.path.join(img_dir_path, "*.png"), recursive=False))
+    images = sorted(
+        glob.glob(os.path.join(img_dir_path, "**", "*.png"), recursive=True)
+    )
 
     return images
 
@@ -239,10 +241,15 @@ def main():
         ],
     )
 
+    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
+    # IMG_SEQ_DIR_PATH = (
+    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0001"
+    # )
+
+    # V2
     IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
-    IMG_SEQ_DIR_PATH = (
-        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0005"
-    )
+    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002"
+
     segm_images = load_images(IMG_MIN_DIR_PATH)
     # vis_image(segm_images, 0)
     vis = Visualize(segm_images)
