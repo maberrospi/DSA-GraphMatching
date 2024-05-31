@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def concat_extracted_features(graph, feat_map, inplace=True):
     # Create an array to store the attributes for every node
     # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
-    feat_attributes = np.zeros((len(graph.vs), feat_map.size(0)))
+    feat_attributes = np.zeros((len(graph.vs), feat_map.shape[0]))
     # print(feat_attributes.shape)
 
     # Loop through the vertices in the graph and populate the feature attributes
@@ -27,6 +27,59 @@ def concat_extracted_features(graph, feat_map, inplace=True):
         feat_attributes[idx, :] = feat_map[:, coords[0], coords[1]]
 
     # print(t)
+    if inplace:
+        # Add the new attributes to every node
+        for attr in range(feat_attributes.shape[1]):
+            attr_name = "feat_" + str(attr)
+            graph.vs[attr_name] = feat_attributes[:, attr]
+    else:
+        new_graph = copy.deepcopy(graph)
+        for attr in range(feat_attributes.shape[1]):
+            attr_name = "feat_" + str(attr)
+            graph.vs[attr_name] = feat_attributes[:, attr]
+        return new_graph
+
+
+def concat_extracted_features_v2(graph, feat_map, inplace=True):
+    # The difference of version 2 is that instead of getting the features from a specific pixel
+    # We will calculate each feature with respect to the neighborhood of that pixel (mean,maxpool,sum)
+
+    # Create an array to store the attributes for every node
+    # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
+    feat_attributes = np.zeros((len(graph.vs), feat_map.shape[0]))
+    # print(feat_attributes.shape)
+    neighb_size = 24  # 8 or 24
+    calc_features = np.zeros(feat_map.shape[0])
+
+    # Loop through the vertices in the graph and populate the feature attributes
+    for idx, vertex in enumerate(graph.vs):
+        coords = np.round(vertex["coords"]).astype(int)
+        v_idx = vertex.index
+
+        # Calculate the features
+        for map in range(feat_map.shape[0]):
+            # Get the values of the neighborhood around the coords and average them
+            values = []
+            for nb in candidate_neighbors(
+                (coords[0], coords[1]), hood_size=neighb_size
+            ):
+                # If the neighboor is outside the bounds of the image skip
+                if (nb[0] < 0 or nb[0] >= feat_map.shape[1]) or (
+                    nb[1] < 0 or nb[1] >= feat_map.shape[2]
+                ):
+                    continue
+
+                values.append(feat_map[map, nb[0], nb[1]])
+
+            # Append the coordinates since they are not included in the neighbors
+            values.append(feat_map[map, coords[0], coords[1]])
+
+            # Average the neighbor feature map values
+            calc_features[map] = np.mean(values)
+
+        # Add the features to the specific node
+        feat_attributes[idx, :] = calc_features
+
     if inplace:
         # Add the new attributes to every node
         for attr in range(feat_attributes.shape[1]):
@@ -71,6 +124,17 @@ def candidate_neighbors(pt, hood_size=8):
             (pt[0] + 1, pt[1] - 1),
             (pt[0] + 1, pt[1]),
             (pt[0] + 1, pt[1] + 1),
+        )
+    elif hood_size == 24:
+        pt_list = []
+        for i in range(-2, 3):
+            for j in range(-2, 3):
+                pt_list.append((pt[0] + i, pt[1] + j))
+        pt_list.remove((pt[0], pt[1]))
+        return pt_list
+    else:
+        logger.info(
+            "The function currently only deals with a neighborhood size of 8 or 24. Sorry!"
         )
 
 
