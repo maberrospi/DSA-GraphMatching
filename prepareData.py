@@ -41,34 +41,60 @@ def prepare_data(dicom_dir="Dicoms", nifti_dir="Niftis", minip_dir="Minip"):
     DICOM_DIR = dicom_dir
     NIFTI_DIR = nifti_dir
     MINIP_DIR = minip_dir
+
+    if not os.path.isdir(DICOM_DIR):
+        logger.warning("Path directory {} does not exist".format(DICOM_DIR))
+        sys.exit(1)
+
     patient_folders = glob(DICOM_DIR + "/*")
     logger.info("Converting DSA DICOM files to MinIP NIFTI1 files.")
     for folder in patient_folders:
         patient_dcms = glob(os.path.join(folder, "*.dcm"))
         logger.info("Converting DSA DICOM files to NIFTI1 files.")
-        comp_series = None
-        counter = 0
-        for idx, dicom in enumerate(patient_dcms):
+        for dicom in patient_dcms:
             ds = dcmread(dicom, defer_size="1 KB", stop_before_pixels=False, force=True)
+            patient_filename = Path(dicom).stem
             patient_ID = ds["PatientID"].value
-            series_num = ds["SeriesNumber"].value
-            if comp_series != series_num and counter < 2:
+
+            # Get the correct index for the csv file
+            idx = patient_info[
+                patient_info["filename"] == patient_filename
+            ].index.item()
+
+            # If AP is assigned to the 0 dir otherwise to 1
+            if patient_view[idx] == "ap":
+                dir_number = str(0)
+            elif patient_view[idx] == "lateral":
+                dir_number = str(1)
+
+            # If it is the preEVT image append pre otherwise append post
+            if patient_pre[idx]:
                 nii_dst_path = os.path.join(
-                    NIFTI_DIR, patient_ID, str(0), "{}.nii".format(Path(dicom).stem)
+                    NIFTI_DIR,
+                    patient_ID,
+                    dir_number,
+                    "{}.nii".format(Path(dicom).stem + "_pre"),
                 )
                 minip_dst_path = os.path.join(
-                    MINIP_DIR, patient_ID, str(0), "{}.png".format(Path(dicom).stem)
+                    MINIP_DIR,
+                    patient_ID,
+                    dir_number,
+                    "{}.png".format(Path(dicom).stem + "_pre"),
                 )
-                counter += 1
             else:
                 nii_dst_path = os.path.join(
-                    NIFTI_DIR, patient_ID, str(1), "{}.nii".format(Path(dicom).stem)
+                    NIFTI_DIR,
+                    patient_ID,
+                    dir_number,
+                    "{}.nii".format(Path(dicom).stem + "_post"),
                 )
                 minip_dst_path = os.path.join(
-                    MINIP_DIR, patient_ID, str(1), "{}.png".format(Path(dicom).stem)
+                    MINIP_DIR,
+                    patient_ID,
+                    dir_number,
+                    "{}.png".format(Path(dicom).stem + "_post"),
                 )
-            if idx == 0:
-                comp_series = series_num
+
             Path(nii_dst_path).parent.mkdir(parents=True, exist_ok=True)
             # print(ds.pixel_array.shape)
             if "FrameTimeVector" in ds:
@@ -125,7 +151,7 @@ def prepare_data(dicom_dir="Dicoms", nifti_dir="Niftis", minip_dir="Minip"):
 
             # Prepare MinIP images
             img_minip = np.min(seq, axis=0)
-            img_minip = normalize(img_minip)
+            # img_minip = normalize(img_minip)  # I have a feeling this is wrong
             Path(minip_dst_path).parent.mkdir(parents=True, exist_ok=True)
             logger.info("Saving minip to {}".format(minip_dst_path))
             imageio.imwrite(minip_dst_path, img_minip)
@@ -252,14 +278,22 @@ def main():
     )
 
     DICOM_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50"
-    # patient_info = pd.read_csv(
-    #     "E:/vessel_diff_first_50_patients/mrclean_part1_2.csv", nrows=174
-    # )  # Small dataset (50 pat)
+    CSV_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2.csv"
+    global patient_info
+    try:
+        patient_info = pd.read_csv(CSV_DIR, nrows=174)  # Small dataset (50 pat)
+    except FileNotFoundError:
+        logger.warning("Path directory {} does not exist".format(CSV_DIR))
+        sys.exit(1)
+
     # patient_ids = patient_info["patient_id"].unique().tolist()
-    # patient_view = patient_info["view"].to_list()
+    global patient_view
+    global patient_pre
+    patient_view = patient_info["view"].to_list()
+    patient_pre = patient_info["preEVT"].fillna(False).to_list()
     # print(patient_view[10])
     # print(f'Patient ID: {patient_ids[-1]} \nSeries: {patient_info['series_number'].to_list()[-1]}')
-    # prepare_data(dicom_dir=DICOM_DIR)
+    prepare_data(dicom_dir=DICOM_DIR, minip_dir="Minipv2", nifti_dir="Niftisv2")
 
     NIFTI_DIR = "Niftis"
     FEAT_MAP_DIR = "FeatMaps"
