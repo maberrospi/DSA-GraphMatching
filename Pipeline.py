@@ -21,6 +21,7 @@ from graph_processing import (
     create_graph,
     concat_extracted_features,
     concat_extracted_features_v2,
+    plot_pre_post,
 )
 import graph_matching as gm
 
@@ -53,7 +54,7 @@ def main(load_segs=True):
     # IMG_DIR_PATH = "Minip/R0011/0"
     # Pat. 18 and 30 are early ICA blockages
     pat_id = "R0002"
-    pat_ori = "0"
+    pat_ori = "1"
     IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
     images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
@@ -235,6 +236,12 @@ def main(load_segs=True):
         verbose=True,
     )
 
+    # Plot the two graph side-by-side (optional)
+    # plot_pre_post(pre_graph, post_graph, preEVT, tr_postEVT, overlay_orig=True)
+    # plot_pre_post(
+    #     pre_graph, post_graph, segm_pre_post[0], final_segm_post, overlay_seg=True
+    # )
+
     # 5. Extract features from the segmenation model
     # and add them as graph attributes
 
@@ -322,12 +329,13 @@ def main(load_segs=True):
     ]
 
     # Test using only the extracted features
+    # Cannot delete the x,y attrs since they are needed for plotting
     # del pre_graph.vs["x"]
     # del post_graph.vs["x"]
     # del pre_graph.vs["y"]
     # del post_graph.vs["y"]
-    # del pre_graph.vs["radius"]
-    # del post_graph.vs["radius"]
+    del pre_graph.vs["radius"]
+    del post_graph.vs["radius"]
 
     # Create a feature matrices from all the node attributes
     pre_feat_matrix = gm.create_feat_matrix(pre_graph)
@@ -349,22 +357,38 @@ def main(load_segs=True):
     # Calculate the node similarity matrix
     sim_matrix = gm.calc_similarity(pre_feat_matrix, post_feat_matrix)
 
-    # Calculate the assignment matrix
+    # Calculate the soft assignment matrix via Sinkhorn
     # Orig tau: 100 Orig iter: 250 for sinkhorn
     assignment_mat = gm.calc_assignment_matrix(
         sim_matrix, tau=10, iter=250, method="sinkhorn"
     )
 
+    # assignment_mat = gm.calc_assignment_matrix(sim_matrix, method="hungarian")
+
     # Get the maximum argument for each row (node)
     matchings = np.argmax(assignment_mat, axis=1)
 
-    # Test masking based on Euclidean distance
+    # Test masking based on feature vector Euclidean distance
     feat_dist = distance.cdist(pre_feat_matrix, post_feat_matrix, "euclidean")
     # Get matchings based on minimum euclidean distance
     matchings = np.argmin(feat_dist, axis=1)
-    thresh = 1
+
+    # Test evaluation using positional Euclidean distance
+    pre_pos = np.zeros((len(pre_graph.vs), 2))
+    for idx, pt in enumerate(pre_kpts):
+        pre_pos[idx, :] = pt
+    post_pos = np.zeros((len(post_graph.vs), 2))
+    for idx, pt in enumerate(post_kpts):
+        post_pos[idx, :] = pt
+    # print(pre_pos[:5, :])
+    node_pos_dist = distance.cdist(pre_pos, post_pos, "euclidean")
+
+    thresh = 15
     masked = np.where(
-        [feat_dist[i, j] < thresh for i, j in zip([*range(len(matchings))], matchings)],
+        [
+            node_pos_dist[i, j] < thresh
+            for i, j in zip([*range(len(matchings))], matchings)
+        ],
         1,
         0,
     ).tolist()
@@ -373,10 +397,33 @@ def main(load_segs=True):
     # Draw keypoints and then their matches
     # Drawing the matches results in an incomprehensable visual because of the large number of nodes
     # gm.draw_keypoints(preEVT, tr_postEVT, pre_kpts, post_kpts)
-    gm.draw_matches(preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, mask=masked)
+    # gm.draw_matches(preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, mask=masked)
     # gm.draw_matches_animated(
     #     preEVT, tr_postEVT, pre_kpts, post_kpts, matchings, save_fig=False
     # )
+    # Draw the preEVT and postEVT Minips
+    # gm.draw_matches_interactive(
+    #     pre_graph,
+    #     post_graph,
+    #     preEVT,
+    #     tr_postEVT,
+    #     pre_kpts,
+    #     post_kpts,
+    #     matchings,
+    #     mask=masked,
+    # )
+    # Draw the preEVT and postEVT segmentations
+    gm.draw_matches_interactive(
+        pre_graph,
+        post_graph,
+        segm_pre_post[0],
+        final_segm_post,
+        pre_kpts,
+        post_kpts,
+        matchings,
+        mask=masked,
+        segm=True,
+    )
 
     ### Spectral matching - Cannot use atm because not enough memory to create aff matrix.
 
