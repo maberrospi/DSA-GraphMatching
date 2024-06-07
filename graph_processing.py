@@ -9,7 +9,79 @@ import matplotlib.pyplot as plt
 from Skeletonization import load_images, get_skeletons, find_centerlines
 import graph_feature_extraction as GFeatExt
 
+# Overlay original
+import cv2
+from skimage.transform import resize
+import skimage as ski
+from matplotlib.widgets import Slider
+
 logger = logging.getLogger(__name__)
+
+
+def plot_pre_post(
+    pre_g, post_g, pre_evt=None, post_evt=None, overlay_orig=False, overlay_seg=False
+) -> None:
+    logger.info("Visualizing the pre and post filtered and final simplified graphs")
+    # Visualize the final simplified graph
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+    visual_style = {}
+    visual_style["vertex_size"] = 5
+    # visual_style["vertex_color"] = "green"
+    ig.plot(pre_g, target=ax[0], **visual_style)
+    ig.plot(post_g, target=ax[1], **visual_style)
+    ax[0].set_title("Pre-EVT")
+    ax[1].set_title("Post-EVT")
+    ax[0].invert_yaxis()
+    ax[1].invert_yaxis()
+
+    if overlay_orig or overlay_seg:
+        fig.subplots_adjust(bottom=0.25)
+        if overlay_orig:
+            # Prepare the original images
+            pre_img = resize(pre_evt, (pre_evt.shape[0] // 2, pre_evt.shape[1] // 2))
+            post_img = resize(
+                post_evt, (post_evt.shape[0] // 2, post_evt.shape[1] // 2)
+            )
+            pre_img = ski.util.img_as_ubyte(pre_img)
+            post_img = ski.util.img_as_ubyte(post_img)
+            pre_img = cv2.cvtColor(pre_img, cv2.COLOR_GRAY2RGB)
+            post_img = cv2.cvtColor(post_img, cv2.COLOR_GRAY2RGB)
+            im0 = ax[0].imshow(pre_img, cmap="gray", alpha=0.5)
+            im1 = ax[1].imshow(post_img, cmap="gray", alpha=0.5)
+        if overlay_seg:
+            # Prepare the segmentation images
+            im0 = ax[0].imshow(pre_evt, cmap="gray", alpha=0.5)
+            im1 = ax[1].imshow(post_evt, cmap="gray", alpha=0.5)
+        # Create the Slider
+        slider_ax = fig.add_axes([0.25, 0.1, 0.60, 0.03])
+        slider = Slider(slider_ax, "Transparency", 0, 1, valinit=0.5, valstep=0.1)
+
+        def update(val):
+            im0.set(alpha=slider.val)
+            im1.set(alpha=slider.val)
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update)
+
+        def arrow_slider_control(event):
+            """
+            This function takes an event from an mpl_connection
+            and listens for key release events specifically from
+            the keyboard arrow keys (left/right) and uses this
+            input to change the threshold slider.
+            """
+            if event.key == "left":
+                cur_th = slider.val
+                if cur_th - 0.1 >= 0:
+                    slider.set_val(cur_th - 0.1)
+            if event.key == "right":
+                cur_th = slider.val
+                if cur_th + 0.1 <= 1:
+                    slider.set_val(cur_th + 0.1)
+
+        fig.canvas.mpl_connect("key_release_event", arrow_slider_control)
+
+    plt.show()
 
 
 def concat_extracted_features(graph, feat_map, inplace=True):
@@ -402,6 +474,10 @@ def analyze_simplify_graph(graph, visualize=False):
         ax.invert_yaxis()
         plt.show()
 
+    # Testing out the further simplification of the graph
+    # This needs some work and is not yet functional
+    # GFeatExt.simplify_more(graph)
+
 
 def create_graph(
     skeleton_img, skeleton_pts, dst_transform, g_name=None, vis=False, verbose=True
@@ -476,9 +552,10 @@ def main():
     )
 
     # Just testing how the graph creation works.
-    IMG_SEQ_DIR_PATH = (
-        "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
-    )
+    # IMG_SEQ_DIR_PATH = (
+    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
+    # )
+    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/0"
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
     if not segm_images:
@@ -496,22 +573,40 @@ def main():
         skeleton_points,
         distance_transform[img_ind],
         g_name="gr",
-        vis=False,
+        vis=True,
         verbose=True,
     )
-    # skeleton_points = find_centerlines(skeletons[img_ind + 1])
-    # gr1 = create_graph(
-    #     skeletons[img_ind + 1],
-    #     skeleton_points,
-    #     distance_transform[img_ind + 1],
-    #     g_name="gr1",
-    #     vis=False,
-    #     verbose=True,
+    skeleton_points = find_centerlines(skeletons[img_ind + 1])
+    gr1 = create_graph(
+        skeletons[img_ind + 1],
+        skeleton_points,
+        distance_transform[img_ind + 1],
+        g_name="gr1",
+        vis=True,
+        verbose=True,
+    )
+    print("G1")
+    ig.summary(gr)
+    print("G2")
+    ig.summary(gr1)
+
+    # Test to see what the linegraph looks like
+    # Keep in mind that when converting the attributes are discarded
+    # gr_line = gr.linegraph()
+    # print("Line Graph Info")
+    # ig.summary(gr_line)
+    # print(
+    #     "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     # )
-    # print("G1")
-    # ig.summary(gr)
-    # print("G2")
-    # ig.summary(gr1)
+    # print(gr_line.es.attributes())
+    # # Visualize the line graph
+    # fig, ax = plt.subplots()
+    # visual_style = {}
+    # visual_style["vertex_size"] = 5
+    # # visual_style["vertex_color"] = "green"
+    # ig.plot(gr_line, target=ax, **visual_style)
+    # ax.invert_yaxis()
+    # plt.show()
 
 
 if __name__ == "__main__":
