@@ -84,6 +84,40 @@ def plot_pre_post(
     plt.show()
 
 
+def multiscale_graph(graph, scale=3):
+    """Extract a specific scale from the graph (e.g. edges with radius g.t 3)
+
+    Args:
+        graph (igraph Graph): Graph that we want to extract scale from
+        scale (int | list): Integer of minimum edge average radius | List of lower and upper bound average radii
+
+    Returns:
+        igraph Graph: The new scaled graph with vessels of a given radius
+    """
+
+    if isinstance(scale, int):
+        edge_ids = graph.es.select(radius_avg_gt=scale)
+    elif isinstance(scale, (list, tuple)):
+        if len(scale) != 2:
+            logger.error(
+                "List does not contain two values. The list must contain the lower and upper bounds.",
+                stack_info=True,
+            )
+            raise ValueError(
+                "List does not contain two values. The list must contain the lower and upper bounds."
+            )
+        upper = max(scale)
+        lower = min(scale)
+        edge_ids = graph.es.select(radius_avg_gt=lower, radius_avg_lt=upper)
+
+    if not edge_ids:
+        logger.error("The new graph does not contain any nodes.", stack_info=True)
+        raise Exception("The new graph does not contain any nodes.")
+    new_scale_graph = graph.subgraph_edges(edge_ids)
+
+    return new_scale_graph
+
+
 def concat_extracted_features(graph, feat_map, inplace=True):
     # Create an array to store the attributes for every node
     # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
