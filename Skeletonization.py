@@ -134,6 +134,7 @@ class Visualize:
         self.vis_img(1)
 
     def vis_img(self, idx):
+        # self.ax.clear()
         img = cv2.imread(self.images[idx - 1], cv2.IMREAD_GRAYSCALE)
         filename = Path(self.images[idx - 1]).stem
         art_or_vein = filename.split("_")[-1]
@@ -168,6 +169,7 @@ class VisualizeSkeletons:
     cur_img = None
     axprev = None
     axnext = None
+    first_pass = True
 
     def __init__(self, skeletons, segms):
         self.skeletons = skeletons
@@ -178,6 +180,8 @@ class VisualizeSkeletons:
     def vis_images(self):
         self.fig, self.ax = plt.subplots(1, 2, figsize=(10, 6))
         self.fig.subplots_adjust(bottom=0.2)
+        self.ax[0].set_title("Skeleton")
+        self.ax[1].set_title("Skeleton on Segmentation")
         self.axprev = self.fig.add_axes([0.7, 0.05, 0.1, 0.075])
         self.axnext = self.fig.add_axes([0.81, 0.05, 0.1, 0.075])
         self.text = self.fig.text(
@@ -197,34 +201,47 @@ class VisualizeSkeletons:
         self.vis_img(1)
 
     def vis_img(self, idx):
+        # How to set attrs of imshow returned class
+        # https://matplotlib.org/stable/api/image_api.html#matplotlib.image.AxesImage
+        # It seems to get slow if you go back and forth multiple times - Fixed
+        # Tried to fix it by clearing axes but for some reason it does not
+        # Re-draw properly and gets stuck on the first image.
+        # NOTE: The for loop does not work but the single lines do. weird.
+        # for idx in range(len(self.ax)):
+        #     self.ax[idx].cla()
+        #     print(idx)
+        self.ax[1].cla()
+        self.ax[0].cla()
         skeleton = self.skeletons[idx - 1]
-        # segm = cv2.imread(self.segms[idx - 1], cv2.IMREAD_GRAYSCALE)
         # If image is a path read image, otherwise image is already read
         if isinstance(self.segms[idx - 1], str):
             segm = cv2.imread(self.segms[idx - 1], cv2.IMREAD_GRAYSCALE)
         else:
             segm = self.segms[idx - 1]
-        self.ax[0].set_title("Skeleton")
-        self.ax[1].set_title("Skeleton on Segmentation")
-        self.cur_img = self.ax[0].imshow(skeleton, cmap="gray")
-        self.ax[1].imshow(segm, cmap="gray")
+        if self.first_pass:
+            self.cur_img = self.ax[0].imshow(skeleton, cmap="gray")
+            self.cur_overl = self.ax[1].imshow(segm, cmap="gray")
+            self.testimg = self.ax[1].imshow(skeleton, cmap="Purples", alpha=0.5)
+        else:
+            self.cur_img.set(data=skeleton)
+            self.cur_overl.set(data=segm)
+            self.testimg.set(data=skeleton, alpha=0.5)
         # skel_col = colors.ListedColormap(["white", "red"])  # Not used after all.
-        self.ax[1].imshow(skeleton, cmap="Purples", alpha=0.5)
         self.text.set_text(self.ind)
+        self.fig.canvas.draw_idle()
+        # plt.draw()
 
     def next(self, event):
         if self.ind == self.upper_bound:
             return
         self.ind += 1
         self.vis_img(self.ind)
-        plt.draw()
 
     def prev(self, event):
         if self.ind == self.lower_bound:
             return
         self.ind -= 1
         self.vis_img(self.ind)
-        plt.draw()
 
 
 def main():
