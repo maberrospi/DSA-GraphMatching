@@ -10,6 +10,9 @@ from skimage.transform import resize
 from scipy.spatial import distance
 import igraph as ig
 
+# Test Boxcox
+from scipy import stats
+
 import SIFTTransform as sift
 from Skeletonization import (
     load_images,
@@ -22,6 +25,7 @@ from graph_processing import (
     concat_extracted_features,
     concat_extracted_features_v2,
     plot_pre_post,
+    multiscale_graph,
 )
 import graph_matching as gm
 
@@ -198,12 +202,23 @@ def main(load_segs=True):
     if not skeleton_images:
         return
 
-    # Multiply skeleton images with the distance transform (optional)
+    # Multiply skeleton images with the distance transform for visualization (optional)
     # skeleton_images = [
     #     sklt * dst for sklt, dst in zip(skeleton_images, distance_transform)
     # ]
-
     # vis_skeleton_and_segm(skeleton_image, segm)
+
+    # Keep the skeleton image and the distance transform at a specific scale
+    # So that we treat the problem as a multi-scale
+    # The choice relies on the distance transform and the value is chosen heuristically
+    # If the distance transform is less than 3 disregard it
+    # for idx in range(len(distance_transform)):
+    #     skeleton_images[idx] = np.where(
+    #         distance_transform[idx] > 4, skeleton_images[idx], 0
+    #     )
+    #     distance_transform[idx] = np.where(
+    #         distance_transform[idx] > 4, distance_transform[idx], 0
+    #     )
 
     vis_skeletons = VisualizeSkeletons(
         skeleton_images, [segm_pre_post[0], final_segm_post]
@@ -235,6 +250,11 @@ def main(load_segs=True):
         vis=False,
         verbose=True,
     )
+
+    # Get the multiscale graph
+    scale = [0, 2]
+    pre_graph = multiscale_graph(pre_graph, scale)
+    post_graph = multiscale_graph(post_graph, scale)
 
     # Plot the two graph side-by-side (optional)
     # plot_pre_post(pre_graph, post_graph, preEVT, tr_postEVT, overlay_orig=True)
@@ -280,7 +300,9 @@ def main(load_segs=True):
     concat_extracted_features_v2(post_graph, post_feat_map, inplace=True)
     # print(pre_graph.vs[0].attributes())
 
-    # Save for imaging
+    # 6. Preprocess features if needed
+
+    # Save keypoints for imaging
     pre_kpts = [(float(pt[0]), float(pt[1])) for pt in pre_graph.vs["coords"]]
     post_kpts = [(float(pt[0]), float(pt[1])) for pt in post_graph.vs["coords"]]
 
@@ -337,15 +359,28 @@ def main(load_segs=True):
     del pre_graph.vs["radius"]
     del post_graph.vs["radius"]
 
+    # 7. Calculate graph node feature matrices and perform matching
+
     # Create a feature matrices from all the node attributes
     pre_feat_matrix = gm.create_feat_matrix(pre_graph)
     post_feat_matrix = gm.create_feat_matrix(post_graph)
 
+    # Log transformation of data since they are right skewed
+    pre_feat_matrix = np.log(pre_feat_matrix + 1)  # 1e-4
+    post_feat_matrix = np.log(post_feat_matrix + 1)
+    # Box-cox transformation - Seems like very similar results to log tr.
+    # pre_feat_matrix = pre_feat_matrix + 1
+    # post_feat_matrix = post_feat_matrix + 1
+    # for col in range(pre_feat_matrix.shape[1]):
+    #     pre_feat_matrix[:, col] = stats.boxcox(pre_feat_matrix[:, col])[0]
+    # for col in range(post_feat_matrix.shape[1]):
+    #     post_feat_matrix[:, col] = stats.boxcox(post_feat_matrix[:, col])[0]
+
     pre_feat_avg, pre_feat_max, pre_feat_min, pre_feat_std = gm.calc_feat_matrix_info(
-        pre_feat_matrix
+        pre_feat_matrix, vis=False
     )
     post_feat_avg, post_feat_max, post_feat_min, post_feat_std = (
-        gm.calc_feat_matrix_info(post_feat_matrix)
+        gm.calc_feat_matrix_info(post_feat_matrix, vis=False)
     )
     print(
         f"Avg: {pre_feat_avg}, Max: {pre_feat_max}, Min: {pre_feat_min}, Std: {pre_feat_std}"
@@ -358,20 +393,27 @@ def main(load_segs=True):
     sim_matrix = gm.calc_similarity(pre_feat_matrix, post_feat_matrix)
 
     # Calculate the soft assignment matrix via Sinkhorn
+    # Differes quite a bit from the hungarian and does not give 1-1 mapping
+    # in many cases, so it's probably best to not use it for now.
     # Orig tau: 100 Orig iter: 250 for sinkhorn
-    assignment_mat = gm.calc_assignment_matrix(
-        sim_matrix, tau=10, iter=250, method="sinkhorn"
-    )
+    # assignment_mat = gm.calc_assignment_matrix(
+    #     sim_matrix, tau=100, iter=250, method="sinkhorn"
+    # )
 
-    # assignment_mat = gm.calc_assignment_matrix(sim_matrix, method="hungarian")
+    assignment_mat = gm.calc_assignment_matrix(sim_matrix, method="hungarian")
 
     # Get the maximum argument for each row (node)
-    matchings = np.argmax(assignment_mat, axis=1)
+    # This complicates the drawing later if they have to be transposed.
+    # if assignment_mat.shape[0] < assignment_mat.shape[1]:
+    #     matchings = np.argmax(assignment_mat, axis=1)  # row
+    # else:
+    #     matchings = np.argmax(assignment_mat, axis=0)  # column
+    matchings = np.argmax(assignment_mat, axis=1)  # row
 
     # Test masking based on feature vector Euclidean distance
     feat_dist = distance.cdist(pre_feat_matrix, post_feat_matrix, "euclidean")
     # Get matchings based on minimum euclidean distance
-    matchings = np.argmin(feat_dist, axis=1)
+    # matchings = np.argmin(feat_dist, axis=1)
 
     # Test evaluation using positional Euclidean distance
     pre_pos = np.zeros((len(pre_graph.vs), 2))
@@ -383,7 +425,7 @@ def main(load_segs=True):
     # print(pre_pos[:5, :])
     node_pos_dist = distance.cdist(pre_pos, post_pos, "euclidean")
 
-    thresh = 15
+    thresh = 15  # 15
     masked = np.where(
         [
             node_pos_dist[i, j] < thresh
