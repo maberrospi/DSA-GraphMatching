@@ -251,11 +251,6 @@ def main(load_segs=True):
         verbose=True,
     )
 
-    # Get the multiscale graph
-    scale = [0, 2]
-    pre_graph = multiscale_graph(pre_graph, scale)
-    post_graph = multiscale_graph(post_graph, scale)
-
     # Plot the two graph side-by-side (optional)
     # plot_pre_post(pre_graph, post_graph, preEVT, tr_postEVT, overlay_orig=True)
     # plot_pre_post(
@@ -268,6 +263,191 @@ def main(load_segs=True):
     pre_feat_map = feat_map_pre_post[0]
     post_feat_map = feat_map_pre_post[1]
     # predict.display_feature_maps(feat_map_pre_post)
+
+    # Loop through all the scales perform matching and finally combine them
+    # We can set scales to [0] if we want the original entire graph matching
+    scales = [(0, 2), (2, 3), (3, 4), 4]
+    # scales = [0]
+    # Variables to store lines and keypoints for plotting
+    lines = []
+    keypoints1 = []
+    keypoints2 = []
+    for _, scale in enumerate(scales):
+        cur_pre_graph = multiscale_graph(pre_graph, scale)
+        cur_post_graph = multiscale_graph(post_graph, scale)
+        # plot_pre_post(
+        #     cur_pre_graph,
+        #     cur_post_graph,
+        #     segm_pre_post[0],
+        #     final_segm_post,
+        #     overlay_seg=True,
+        # )
+
+        # Test averaging the neighborhood (3x3) or (5x5) values for the features
+        # Pre-EVT graph
+        concat_extracted_features_v2(cur_pre_graph, pre_feat_map, inplace=True)
+        # Post-EVT graph
+        concat_extracted_features_v2(cur_post_graph, post_feat_map, inplace=True)
+        # print(cur_pre_graph.vs[0].attributes())
+
+        # 6. Preprocess features if needed
+
+        # Save keypoints for imaging
+        pre_kpts = [(float(pt[0]), float(pt[1])) for pt in cur_pre_graph.vs["coords"]]
+        post_kpts = [(float(pt[0]), float(pt[1])) for pt in cur_post_graph.vs["coords"]]
+
+        # Delete the coords attribute before calculating similarity
+        del cur_pre_graph.vs["coords"]
+        del cur_post_graph.vs["coords"]
+
+        # Find min max radius of all nodes in the graphs for normalization
+        pre_r_avg, pre_r_max, pre_r_min, pre_r_std = gm.calc_graph_radius_info(
+            cur_pre_graph
+        )
+        print(
+            f"R-Avg: {pre_r_avg}, R-Max: {pre_r_max}, R-Min: {pre_r_min}, R-Std: {pre_r_std}"
+        )
+        post_r_avg, post_r_max, post_r_min, post_r_std = gm.calc_graph_radius_info(
+            cur_post_graph
+        )
+        print(
+            f"R-Avg: {post_r_avg}, R-Max: {post_r_max}, R-Min: {post_r_min}, R-Std: {post_r_std}"
+        )
+        r_norm_max = pre_r_max if pre_r_max > post_r_max else post_r_max
+        r_norm_min = pre_r_min if pre_r_min < post_r_min else post_r_min
+
+        # Min-max normalization of radii
+        cur_pre_graph.vs["radius"] = [
+            (r - r_norm_min) / (r_norm_max - r_norm_min)
+            for r in cur_pre_graph.vs["radius"]
+        ]
+        cur_post_graph.vs["radius"] = [
+            (r - r_norm_min) / (r_norm_max - r_norm_min)
+            for r in cur_post_graph.vs["radius"]
+        ]
+
+        # Normalize x,y and radius features - Prevent blowup with similarity mat
+        cur_pre_graph.vs["x"] = [
+            x / skeleton_images[0].shape[1] for x in cur_pre_graph.vs["x"]
+        ]
+        cur_pre_graph.vs["y"] = [
+            y / skeleton_images[0].shape[0] for y in cur_pre_graph.vs["y"]
+        ]
+        cur_post_graph.vs["x"] = [
+            x / skeleton_images[1].shape[1] for x in cur_post_graph.vs["x"]
+        ]
+        cur_post_graph.vs["y"] = [
+            y / skeleton_images[1].shape[0] for y in cur_post_graph.vs["y"]
+        ]
+
+        # Delete the node radius info since I think it is misleading
+        del cur_pre_graph.vs["radius"]
+        del cur_post_graph.vs["radius"]
+
+        # 7. Calculate graph node feature matrices and perform matching
+
+        # Create a feature matrices from all the node attributes
+        pre_feat_matrix = gm.create_feat_matrix(cur_pre_graph)
+        post_feat_matrix = gm.create_feat_matrix(cur_post_graph)
+
+        # Log transformation of data since they are right skewed
+        pre_feat_matrix = np.log(pre_feat_matrix + 1)  # 1e-4
+        post_feat_matrix = np.log(post_feat_matrix + 1)
+        # Box-cox transformation - Seems like very similar results to log tr.
+        # pre_feat_matrix = pre_feat_matrix + 1
+        # post_feat_matrix = post_feat_matrix + 1
+        # for col in range(pre_feat_matrix.shape[1]):
+        #     pre_feat_matrix[:, col] = stats.boxcox(pre_feat_matrix[:, col])[0]
+        # for col in range(post_feat_matrix.shape[1]):
+        #     post_feat_matrix[:, col] = stats.boxcox(post_feat_matrix[:, col])[0]
+
+        pre_feat_avg, pre_feat_max, pre_feat_min, pre_feat_std = (
+            gm.calc_feat_matrix_info(pre_feat_matrix, vis=False)
+        )
+        post_feat_avg, post_feat_max, post_feat_min, post_feat_std = (
+            gm.calc_feat_matrix_info(post_feat_matrix, vis=False)
+        )
+        print(
+            f"Avg: {pre_feat_avg}, Max: {pre_feat_max}, Min: {pre_feat_min}, Std: {pre_feat_std}"
+        )
+        print(
+            f"Avg: {post_feat_avg}, Max: {post_feat_max}, Min: {post_feat_min}, Std: {post_feat_std}"
+        )
+
+        # Calculate the node similarity matrix
+        sim_matrix = gm.calc_similarity(pre_feat_matrix, post_feat_matrix)
+
+        # Calculate the soft assignment matrix via Sinkhorn
+        # Differes quite a bit from the hungarian and does not give 1-1 mapping
+        # in many cases, so it's probably best to not use it for now.
+        # Orig tau: 100 Orig iter: 250 for sinkhorn
+        # assignment_mat = gm.calc_assignment_matrix(
+        #     sim_matrix, tau=100, iter=250, method="sinkhorn"
+        # )
+
+        assignment_mat = gm.calc_assignment_matrix(sim_matrix, method="hungarian")
+
+        matchings = np.argmax(assignment_mat, axis=1)  # row
+
+        # Test masking based on feature vector Euclidean distance
+        feat_dist = distance.cdist(pre_feat_matrix, post_feat_matrix, "euclidean")
+        # Get matchings based on minimum euclidean distance
+        matchings = np.argmin(feat_dist, axis=1)
+
+        # Test evaluation using positional Euclidean distance
+        pre_pos = np.zeros((len(cur_pre_graph.vs), 2))
+        for idx, pt in enumerate(pre_kpts):
+            pre_pos[idx, :] = pt
+        post_pos = np.zeros((len(cur_post_graph.vs), 2))
+        for idx, pt in enumerate(post_kpts):
+            post_pos[idx, :] = pt
+
+        node_pos_dist = distance.cdist(pre_pos, post_pos, "euclidean")
+
+        thresh = 15  # 15
+        masked = np.where(
+            [
+                node_pos_dist[i, j] < thresh
+                for i, j in zip([*range(len(matchings))], matchings)
+            ],
+            1,
+            0,
+        ).tolist()
+        # masked = None
+
+        # Draw keypoints and their matches for the given current subgraph
+        # Draw the preEVT and postEVT segmentations
+        # If we use the multi-scale approach we only need to plot the graphs
+        # and segmentations once and keep track of the matched keypoints to draw them
+
+        lines_kpts = gm.get_kpts_lines(
+            pre_kpts,
+            post_kpts,
+            matchings,
+            im_width=final_segm_post.shape[1],
+            inliers=masked,
+        )
+        # Get values from the dictionary and extend the lists
+        lines.extend(lines_kpts["lines"])
+        keypoints1.extend(lines_kpts["kpts1"])
+        keypoints2.extend(lines_kpts["kpts2"])
+
+    # When the loop ends we plot our original graphs and images with the matches
+    gm.multiscale_draw_matches_interactive(
+        pre_graph,
+        post_graph,
+        segm_pre_post[0],
+        final_segm_post,
+        keypoints1,
+        keypoints2,
+        lines,
+        segm=True,
+    )
+
+    return
+
+    ### The code from this point forward is the initial single-scale graph matching
+    ### that was initially used. Kept for personal use.
 
     # Use the feature descriptors calculated in a similar way to SIFT
     # Given that keypoints are the nodes of the two graphs
