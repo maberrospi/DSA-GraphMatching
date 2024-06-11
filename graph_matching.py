@@ -236,8 +236,6 @@ def custom_draw_matches(img1, kp1, img2, kp2, matches, inliers=None):
     - kp2: Keypoints in the second image.
     - matches: List of matches.
     - inliers: List of booleans indicating whether a match is an inlier.
-    - color: Color of the lines and keypoints.
-    - thickness: Thickness of the lines.
     """
 
     colors = [
@@ -390,6 +388,192 @@ def draw_matches_interactive(
         ax.plot([x1, x2], [y1, y2], color=color, linewidth=1)
 
     for kp in keypoints1 + keypoints2:
+        x, y, color = kp
+        ax.scatter(x, y, color=color, s=20, edgecolor="k")
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Create the Slider
+    slider_ax = fig.add_axes([0.25, 0.1, 0.60, 0.03])
+    slider = Slider(slider_ax, "Transparency", 0, 1, valinit=0.5, valstep=0.1)
+
+    def update(val):
+        m_img.set(alpha=slider.val)
+        fig.canvas.draw_idle()
+
+    slider.on_changed(update)
+
+    def arrow_slider_control(event):
+        """
+        This function takes an event from an mpl_connection
+        and listens for key release events specifically from
+        the keyboard arrow keys (left/right) and uses this
+        input to change the threshold slider.
+        """
+        if event.key == "left":
+            cur_th = slider.val
+            if cur_th - 0.1 >= 0:
+                slider.set_val(cur_th - 0.1)
+        if event.key == "right":
+            cur_th = slider.val
+            if cur_th + 0.1 <= 1:
+                slider.set_val(cur_th + 0.1)
+
+    fig.canvas.mpl_connect("key_release_event", arrow_slider_control)
+
+    plt.show()
+
+
+def get_kpts_lines(kp1, kp2, matches, im_width, inliers=None):
+    """
+    Get the keypoint and line locations to plot later on.
+
+    Parameters:
+    - kp1: Keypoints in the first image.
+    - kp2: Keypoints in the second image.
+    - matches: List of matches.
+    - im_width: Width of the second image (Post-EVT)
+    - inliers: List of booleans indicating whether a match is an inlier.
+
+    Return:
+        Dict: Dictionary with the lines and keypoints
+    """
+    colors = [
+        (0, 1, 0),
+        (0, 0, 1),
+        (1, 0, 0),
+        (0, 1, 1),
+        (1, 0, 1),
+        (1, 1, 0),
+        (1, 1, 1),
+        (0, 0, 0),
+        (0.5, 1, 0),
+        (1, 0.5, 0),
+        (1, 0, 0.5),
+        (0.5, 0, 1),
+        (0, 0.5, 1),
+        (0, 1, 0.5),
+        (0.5, 0.5, 0.5),
+        (0.5, 0, 0),
+        (0, 0.5, 0),
+        (0, 0, 0.5),
+        (0.5, 0.5, 0),
+        (0.5, 0, 0.5),
+    ]
+    # Random shuffle the colors so we don't get similar colors next to eachother.
+    shuffle(colors)
+
+    lines = []
+    keypoints1 = []
+    keypoints2 = []
+
+    # Prepare keypoints for cv2
+    kp1 = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in kp1]
+    kp2 = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in kp2]
+
+    # Prepare matches for cv2
+    matches_list = []
+    # Unpacking the range into a list
+    pre_graph_node_idx = [*range(len(matches))]
+    # Distance is set to 1 for all as a placeholder
+    distance = 1  # np.zeros(len(matches))
+    for i, j in zip(pre_graph_node_idx, matches):
+        # Create cv2 DMatch object
+        matches_list.append(cv2.DMatch(i, j, distance))
+
+    # Keep track of the keypoints and matches and their color for drawing
+    for i, match in enumerate(matches_list):
+        # Get the matching keypoints for each of the images
+        kp1_idx = match.queryIdx
+        kp2_idx = match.trainIdx
+
+        # Get the coordinates of the keypoints
+        x1, y1 = kp1[kp1_idx].pt
+        x2, y2 = kp2[kp2_idx].pt
+
+        # Offset the coordinates in the second image
+        x2 += im_width
+
+        # Choose color based on the index
+        color = colors[i % len(colors)]
+
+        # Draw lines connecting the keypoints
+        if inliers is None or inliers[i]:
+            # Instead of drawing the lines and circles return them to plot after
+            lines.append((x1, y1, x2, y2, color))
+            keypoints1.append((x1, y1, color))
+            keypoints2.append((x2, y2, color))
+
+    return {"lines": lines, "kpts1": keypoints1, "kpts2": keypoints2}
+
+
+def multiscale_draw_matches_interactive(
+    pre_g,
+    post_g,
+    pre_evt,
+    post_evt,
+    pre_kpts,
+    post_kpts,
+    lines,
+    segm=False,
+) -> None:
+    visual_style = {}
+    visual_style["vertex_size"] = 5
+    # visual_style["vertex_color"] = "green"
+
+    # Plot the pre and post EVT graphs in the same axes
+    fig, ax = plt.subplots(figsize=(12, 6))
+    # plot the first graph on the axis
+    # The multiplication by 512 is done because the x,y values were normalied previously
+    # The x,y values are normalized on subgraphs now so we don't need to multiply the layout
+    # Which was required in the one-scale approach.
+    layout1 = [(v["x"], v["y"]) for v in pre_g.vs]
+    ig.plot(pre_g, layout=layout1, target=ax, **visual_style)
+    # Adjust the positions of the nodes in the second graph by adding an x offset
+    layout2 = [(v["x"] + 512, v["y"]) for v in post_g.vs]
+    # plot the second graph with the modified layout
+    ig.plot(post_g, layout=layout2, target=ax, **visual_style)
+    ax.set_title("Matches")
+    ax.invert_yaxis()
+
+    fig.subplots_adjust(wspace=0, bottom=0.25)
+    if segm:
+        # Prepare the segmentation images
+        # Multiply by 255 because it is a binary image
+        pre_img = cv2.cvtColor(pre_evt, cv2.COLOR_GRAY2RGB) * 255
+        post_img = cv2.cvtColor(post_evt, cv2.COLOR_GRAY2RGB) * 255
+    else:
+        # Prepare the original images
+        pre_img = resize(pre_evt, (pre_evt.shape[0] // 2, pre_evt.shape[1] // 2))
+        post_img = resize(post_evt, (post_evt.shape[0] // 2, post_evt.shape[1] // 2))
+        pre_img = ski.util.img_as_ubyte(pre_img)
+        post_img = ski.util.img_as_ubyte(post_img)
+        pre_img = cv2.cvtColor(pre_img, cv2.COLOR_GRAY2RGB)
+        post_img = cv2.cvtColor(post_img, cv2.COLOR_GRAY2RGB)
+
+    # Stitch the images
+    # Create a new output image that concatenates the two images side by side
+    height1, width1 = pre_img.shape[:2]
+    height2, width2 = post_img.shape[:2]
+    # Initially the matches were drawn on the image so it needed to be RGB
+    # However now they aren't so this should be changed to single channel
+    # But was left behind since it wasn't a priority
+    stitched_img = np.zeros((max(height1, height2), width1 + width2, 3), dtype="uint8")
+    # only_matches_img = np.zeros((max(height1, height2), width1 + width2), dtype="uint8")
+
+    # This represents only the stithced pre and post images
+    stitched_img[:height1, :width1] = pre_img
+    stitched_img[:height2, width1:] = post_img
+    # Plot the stitched images
+    m_img = ax.imshow(stitched_img, alpha=0.5)
+
+    # Plot the matched kpts and lines
+    for line in lines:
+        x1, y1, x2, y2, color = line
+        ax.plot([x1, x2], [y1, y2], color=color, linewidth=1)
+
+    for kp in pre_kpts + post_kpts:
         x, y, color = kp
         ax.scatter(x, y, color=color, s=20, edgecolor="k")
 
