@@ -13,6 +13,75 @@ from matplotlib.widgets import Slider
 from random import shuffle
 
 
+def get_patches(images: list, patch_height: int = 128, patch_width: int = 128) -> list:
+    """Create patches for the given list of single-channel images or feature maps
+
+    Args:
+        images (list): Input images to be used for patching
+        patch_height (int, optional): New patch height to be used. Defaults to 128.
+        patch_width (int, optional): New patch width to be used. Defaults to 128.
+
+    Returns:
+        list: Patched images
+    """
+    patched_imgs = []
+    for img in images:
+        # 128 was chosen to split the image into 4x4 patches
+        patch_height, patch_width = patch_height, patch_width
+        if len(images[0].shape) == 2:
+            assert (
+                images[0].shape[0] % patch_height == 0
+                and images[0].shape[1] % patch_width == 0
+            ), "The image width and height must be divisible by the patch width and height respectively"
+            img_height, img_width = img.shape
+            patched_img = img.reshape(
+                img_height // patch_height,
+                patch_height,
+                img_width // patch_width,
+                patch_width,
+            )
+            patched_img = patched_img.swapaxes(1, 2)
+        elif len(images[0].shape) == 3:
+            assert (
+                images[0].shape[1] % patch_height == 0
+                and images[0].shape[2] % patch_width == 0
+            ), "The image width and height must be divisible by the patch width and height respectively"
+            features, img_height, img_width = img.shape
+            patched_img = img.reshape(
+                features,
+                img_height // patch_height,
+                patch_height,
+                img_width // patch_width,
+                patch_width,
+            )
+            patched_img = patched_img.swapaxes(2, 3)
+
+        patched_imgs.append(patched_img)
+
+    return patched_imgs
+
+
+def visualize_patches(patched_imgs: list) -> None:
+    """Visualize the patches created by get_patches
+
+    Args:
+        patched_imgs (list): Patched images as returned by the get_patches function
+    """
+    for img in patched_imgs:
+        # print(img.shape)
+        fig, axs = plt.subplots(img.shape[0], img.shape[1])
+        for r_idx in range(img.shape[0]):
+            for c_idx in range(img.shape[1]):
+                axs[r_idx, c_idx].imshow(img[r_idx, c_idx, ...], cmap="gray")
+        for ax in axs.flatten():
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+        fig.subplots_adjust(wspace=0, hspace=0.05)
+
+    plt.show()
+
+
 def calc_similarity(feat_matrix_1, feat_matrix_2):
     similarity_matrix = np.inner(feat_matrix_1, feat_matrix_2)
     # print(similarity_matrix.shape)
@@ -77,8 +146,8 @@ def calc_assignment_matrix(similarity_mat, tau=1, iter=10, method="sinkhorn"):
     ], "Invalid method - Choose sinkhorn or hungarian"
     if method == "sinkhorn":
         # Can add unmatch arguments to use the 'dustbin' logic as in SuperGlue
-        # unm1 = np.zeros(similarity_mat.shape[0])
-        # unm2 = np.zeros(similarity_mat.shape[1])
+        unm1 = np.zeros(similarity_mat.shape[0])
+        unm2 = np.zeros(similarity_mat.shape[1])
         S = pygm.sinkhorn(
             similarity_mat,
             dummy_row=True,
@@ -123,15 +192,17 @@ def calc_affinity_matrix(pre_g, post_g):
     # Create the feature matrices for all the edge attributes
     pre_e_feat_matrix = create_edge_feat_matrix(pre_g)
     post_e_feat_matrix = create_edge_feat_matrix(post_g)
+    # print(pre_e_feat_matrix.shape)
 
     # Get adjacency matrix for both graphs
     A1 = np.array(pre_g.get_adjacency().data)
     A2 = np.array(post_g.get_adjacency().data)
 
     # Transform to sparse connectivity matrix for pygm
-    A1, _ = pygm.utils.dense_to_sparse(A1)  # Don't need the edge weight tensor
-    A2, _ = pygm.utils.dense_to_sparse(A2)
-
+    A1, ew1 = pygm.utils.dense_to_sparse(A1)  # Don't need the edge weight tensor
+    A2, ew2 = pygm.utils.dense_to_sparse(A2)
+    print(A1.shape, A2.shape)
+    # print(ew1.shape)
     # Change data types to conserve memory
     pre_feat_matrix = pre_feat_matrix.astype("float16")
     post_feat_matrix = post_feat_matrix.astype("float16")
@@ -144,13 +215,18 @@ def calc_affinity_matrix(pre_g, post_g):
     K = pygm.utils.build_aff_mat(
         pre_feat_matrix, pre_e_feat_matrix, A1, post_feat_matrix, post_e_feat_matrix, A2
     )
+    # K = pygm.utils.build_aff_mat(pre_feat_matrix, ew1, A1, post_feat_matrix, ew2, A2)
 
     return K
 
 
-def spectral_matcher(aff_mat):
+def spectral_matcher(aff_mat, n1, n2):
+    print(aff_mat.shape)
+    plt.imshow(aff_mat)
+    plt.colorbar()
+    plt.show()
     # Note that S is a normalized with a squared sum of 1
-    S = pygm.sm(aff_mat)
+    S = pygm.sm(aff_mat, n1=n1, n2=n2)
     # Since we need a doubly-stochastic matrix we must use Sinkhorn
     S = calc_assignment_matrix(S, tau=10, iter=250)
 
@@ -425,7 +501,7 @@ def draw_matches_interactive(
     plt.show()
 
 
-def get_kpts_lines(kp1, kp2, matches, im_width, inliers=None):
+def get_kpts_lines(kp1, kp2, matches, im_width, inliers=None, transposed=False):
     """
     Get the keypoint and line locations to plot later on.
 
@@ -493,7 +569,128 @@ def get_kpts_lines(kp1, kp2, matches, im_width, inliers=None):
         x2, y2 = kp2[kp2_idx].pt
 
         # Offset the coordinates in the second image
-        x2 += im_width
+        if transposed:
+            x1 += im_width
+        else:
+            x2 += im_width
+
+        # Choose color based on the index
+        color = colors[i % len(colors)]
+
+        # Draw lines connecting the keypoints
+        if inliers is None or inliers[i]:
+            # Instead of drawing the lines and circles return them to plot after
+            lines.append((x1, y1, x2, y2, color))
+            keypoints1.append((x1, y1, color))
+            keypoints2.append((x2, y2, color))
+
+    return {"lines": lines, "kpts1": keypoints1, "kpts2": keypoints2}
+
+
+def get_kpts_lines_patched(
+    kp1: list,
+    kp2: list,
+    matches: np.ndarray,
+    im_width: int,
+    patch_size: tuple,
+    patches_shape: tuple,
+    patch_index: int,
+    inliers: list = None,
+    transposed=False,
+) -> dict:
+    """Get the keypoint and line locations to plot later on for patched matching.
+
+    Args:
+        - kp1 (list of tuples): Keypoints in the first image.
+        - kp2 (list of tuples): Keypoints in the second image.
+        - matches (np.ndarray): List of matches.
+        - im_width (int): Width of the second image (Post-EVT)
+        - patch_size (tuple): Patch width and height
+        - patches_shape (tuple): Shape of total patches (e.g. 4x4)
+        - patch_idx (int): Index of current for loop iteration
+        - inliers (list, optional): List of booleans indicating whether a match is an inlier.
+        - transposed (bool, optional): Indicated if post keypoints are less than pre. Defaults to False.
+
+    Returns:
+        Dict: Dictionary with the lines and keypoints
+    """
+    colors = [
+        (0, 1, 0),
+        (0, 0, 1),
+        (1, 0, 0),
+        (0, 1, 1),
+        (1, 0, 1),
+        (1, 1, 0),
+        (1, 1, 1),
+        (0, 0, 0),
+        (0.5, 1, 0),
+        (1, 0.5, 0),
+        (1, 0, 0.5),
+        (0.5, 0, 1),
+        (0, 0.5, 1),
+        (0, 1, 0.5),
+        (0.5, 0.5, 0.5),
+        (0.5, 0, 0),
+        (0, 0.5, 0),
+        (0, 0, 0.5),
+        (0.5, 0.5, 0),
+        (0.5, 0, 0.5),
+    ]
+    # Random shuffle the colors so we don't get similar colors next to eachother.
+    shuffle(colors)
+
+    patch_width, patch_height = patch_size
+    patches_rows, patches_cols = patches_shape
+
+    lines = []
+    keypoints1 = []
+    keypoints2 = []
+
+    # Prepare keypoints for cv2
+    kp1 = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in kp1]
+    kp2 = [cv2.KeyPoint(pt[1], pt[0], 1) for pt in kp2]
+
+    # Prepare matches for cv2
+    matches_list = []
+    # Unpacking the range into a list
+    pre_graph_node_idx = [*range(len(matches))]
+    # Distance is set to 1 for all as a placeholder
+    distance = 1  # np.zeros(len(matches))
+    for i, j in zip(pre_graph_node_idx, matches):
+        # Create cv2 DMatch object
+        matches_list.append(cv2.DMatch(i, j, distance))
+
+    # Keep track of the keypoints and matches and their color for drawing
+    for i, match in enumerate(matches_list):
+        # Get the matching keypoints for each of the images
+        kp1_idx = match.queryIdx
+        kp2_idx = match.trainIdx
+
+        # Get the coordinates of the keypoints
+        x1, y1 = kp1[kp1_idx].pt
+        x2, y2 = kp2[kp2_idx].pt
+
+        # Calculate the offset to add based on the current patch index
+        # The formula would be I = x*img_width + y
+        # To get x we use I / width and for y I % width.
+        patch_row, patch_col = (
+            int(patch_index / patches_cols),
+            patch_index % patches_cols,
+        )
+        x_offset = patch_width * patch_col
+        y_offset = patch_height * patch_row
+
+        # Offset the coordinates based on the current patch position
+        if transposed:
+            x1 += im_width + x_offset
+            y1 += y_offset
+            x2 += x_offset
+            y2 += y_offset
+        else:
+            x2 += im_width + x_offset
+            y2 += y_offset
+            x1 += x_offset
+            y1 += y_offset
 
         # Choose color based on the index
         color = colors[i % len(colors)]
@@ -525,19 +722,18 @@ def multiscale_draw_matches_interactive(
     # Plot the pre and post EVT graphs in the same axes
     fig, ax = plt.subplots(figsize=(12, 6))
     # plot the first graph on the axis
-    # The multiplication by 512 is done because the x,y values were normalied previously
     # The x,y values are normalized on subgraphs now so we don't need to multiply the layout
     # Which was required in the one-scale approach.
     layout1 = [(v["x"], v["y"]) for v in pre_g.vs]
     ig.plot(pre_g, layout=layout1, target=ax, **visual_style)
     # Adjust the positions of the nodes in the second graph by adding an x offset
-    layout2 = [(v["x"] + 512, v["y"]) for v in post_g.vs]
+    layout2 = [(v["x"] + pre_evt.shape[1], v["y"]) for v in post_g.vs]
     # plot the second graph with the modified layout
     ig.plot(post_g, layout=layout2, target=ax, **visual_style)
     ax.set_title("Matches")
     ax.invert_yaxis()
 
-    fig.subplots_adjust(wspace=0, bottom=0.25)
+    fig.subplots_adjust(bottom=0.25)
     if segm:
         # Prepare the segmentation images
         # Multiply by 255 because it is a binary image
@@ -568,6 +764,13 @@ def multiscale_draw_matches_interactive(
     # Plot the stitched images
     m_img = ax.imshow(stitched_img, alpha=0.5)
 
+    # Plot a line between the two graphs/images
+    ax.plot(
+        [width1 - 0.5, width1 - 0.5],
+        [-0.5, height1 - 0.5],
+        color="tab:orange",
+        linewidth=1,
+    )
     # Plot the matched kpts and lines
     for line in lines:
         x1, y1, x2, y2, color = line
