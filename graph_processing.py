@@ -568,6 +568,10 @@ def create_graph(
         "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     )
 
+    if not sk_graph.vs():
+        logger.error("The created graph does not contain any nodes.", stack_info=True)
+        raise Exception("The created graph does not contain any nodes.")
+
     return sk_graph
 
 
