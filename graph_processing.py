@@ -288,7 +288,8 @@ def get_cliques(graph, components=False):
             if count == 0:
                 break
             subg = subg.subgraph(subg.vs.select(_degree_gt=1))
-        cliques = [clique for clique in subg.maximal_cliques() if 2 < len(clique) < 5]
+        # Get the maximal cliques that have 3-4 nodes
+        cliques = [clique for clique in subg.maximal_cliques(3, 5)]
 
     return subg, cliques
 
@@ -510,7 +511,8 @@ def analyze_simplify_graph(graph, visualize=False):
 
     # Testing out the further simplification of the graph
     # This needs some work and is not yet functional
-    # GFeatExt.simplify_more(graph)
+    GFeatExt.simplify_more_sclass1(graph, vis=False)
+    GFeatExt.simplify_more_sclass2(graph, vis=False)
 
 
 def create_graph(
@@ -559,6 +561,8 @@ def create_graph(
     #     "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     # )
 
+    # GFeatExt.simplify_more(sk_graph)
+
     # Analyze the graph segments and simplify it further maintaining only bifurcation points
     analyze_simplify_graph(sk_graph, visualize=vis)
 
@@ -593,7 +597,7 @@ def main():
     # IMG_SEQ_DIR_PATH = (
     #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     # )
-    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/0"
+    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/1"
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
     if not segm_images:
@@ -611,22 +615,22 @@ def main():
         skeleton_points,
         distance_transform[img_ind],
         g_name="gr",
-        vis=True,
+        vis=False,
         verbose=True,
     )
-    skeleton_points = find_centerlines(skeletons[img_ind + 1])
-    gr1 = create_graph(
-        skeletons[img_ind + 1],
-        skeleton_points,
-        distance_transform[img_ind + 1],
-        g_name="gr1",
-        vis=True,
-        verbose=True,
-    )
+    # skeleton_points = find_centerlines(skeletons[img_ind + 1])
+    # gr1 = create_graph(
+    #     skeletons[img_ind + 1],
+    #     skeleton_points,
+    #     distance_transform[img_ind + 1],
+    #     g_name="gr1",
+    #     vis=False,
+    #     verbose=True,
+    # )
     print("G1")
     ig.summary(gr)
-    print("G2")
-    ig.summary(gr1)
+    # print("G2")
+    # ig.summary(gr1)
 
     # Test to see what the linegraph looks like
     # Keep in mind that when converting the attributes are discarded
