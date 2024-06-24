@@ -6,9 +6,10 @@ from math import ceil, log
 import numpy as np
 from geomdl import knotvector
 from scipy import interpolate
+from itertools import chain
 from collections import namedtuple
 
-# Remove after debugging
+# Used for debugging and visualizations
 import matplotlib.pyplot as plt
 import igraph as ig
 
@@ -374,7 +375,14 @@ def save_feature_results(graph, features, edges, simplify_graph=True):
         )
 
     # The features can be returned here and used for further analysis
-    return
+    return (
+        lengths,
+        turtuosities,
+        radii_avg,
+        radii_max,
+        radii_min,
+        radii_std,
+    )
 
 
 def reduce_graph(
@@ -394,6 +402,385 @@ def reduce_graph(
     )
     graph.delete_vertices(graph.vs.select(_degree=0))
     return
+
+
+def simplified_branch_segment_ft_extraction(graph, new_edges):
+    # Same effect as branch_segment_feature_extraction() but modified arguments
+    # for further_simplified graphs
+    features = []
+    for edge in new_edges:
+        # Every edge contains the source and target node index
+        vertices = [edge[0], edge[1]]
+        features.append(feature_extraction(graph, vertices, smoothing=False))
+
+    return features
+
+
+def max_distance_vs(vertices: list):
+    # List of igraph.Vertex objects
+    assert len(vertices) == 2, "Vertices length can only be two"
+
+    v_xs = [v["x"] for v in vertices]
+    v_ys = [v["y"] for v in vertices]
+    max_dist = 0
+
+    for v in vertices:
+        max_dist = max([max(max_dist, nums) for nums in abs(v_xs - v["x"])])
+        max_dist = max([max(max_dist, nums) for nums in abs(v_ys - v["y"])])
+
+    # print(f"Max distance: {max_dist}")
+    return max_dist
+
+
+def max_distance(clique: ig.VertexSeq):
+    # Calculate the max distance between the node pixels in a given clique
+    # The distance is measure in x and y pixel difference
+    max_dist = 0
+    subgr_x = [x for x in clique["x"]]
+    subgr_y = [y for y in clique["y"]]
+
+    for node in clique:
+        max_dist = max([max(max_dist, nums) for nums in abs(node["x"] - subgr_x)])
+        max_dist = max([max(max_dist, nums) for nums in abs(node["y"] - subgr_y)])
+
+    # print(max_dist)
+    return max_dist
+
+
+def find_new_vertex_neighbors(graph, subg_vs):
+    graph_vs = graph.vs[subg_vs["id"]]
+
+    neighbors = []
+    e_features = []
+    # print(f'Subgraph ids: {subg_vs["id"]}')
+    clique_nb_ids = subg_vs["id"]
+    for graph_v, subg_v in zip(graph_vs, subg_vs):
+
+        # The vertex IDs since up to here they are the same as the vertex index
+        # Maybe use extend here
+        cur_nbs = [
+            nb["id"] for nb in graph_v.neighbors() if nb["id"] not in clique_nb_ids
+        ]
+
+        neighbors += [
+            nb["id"] for nb in graph_v.neighbors() if nb["id"] not in clique_nb_ids
+        ]
+
+        num_of_all_nbs = len(neighbors)
+
+        for nb in cur_nbs:
+            # Store original edge features
+            e_id = graph.get_eid(graph_v["id"], nb)
+            e_features.append(FeatureVars(*graph.es[e_id].attributes().values()))
+
+        # print(f"Neighbors: {neighbors}")
+    for neighbor in neighbors[:]:  # Iterate cloned neighbors
+        if neighbor in vertices_to_remove:
+            index = neighbors.index(neighbor)
+            nodes_to_keep_track.append(neighbors.pop(index))
+            e_features.pop(index)
+
+    # print(len(neighbors))
+    # print(e_features, len(e_features), sep=", ")
+
+    return neighbors, e_features, num_of_all_nbs
+
+
+def create_new_vertex(graph, subg_vs):
+    new_radius = np.mean(subg_vs["radius"])
+    new_coords = np.mean(subg_vs["coords"], axis=0)
+
+    # coordinates are y,x
+    new_vertex_info = {
+        "radius": new_radius,
+        "coords": new_coords,
+        "y": new_coords[0],
+        "x": new_coords[1],
+    }
+    neighbors, e_features, num_of_all_nbs = find_new_vertex_neighbors(graph, subg_vs)
+
+    # print(num_of_all_nbs, len(neighbors))
+    if num_of_all_nbs != len(neighbors):
+        for _ in range(num_of_all_nbs - len(neighbors)):
+            # append the source clique index
+            src_cl_idxs.append(src_idx)
+
+    return [new_vertex_info, neighbors, e_features]
+
+
+def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
+    # Assign all vertices their original ID
+    graph.vs["id"] = np.arange(graph.vcount())
+
+    if bifurcation_cliques:
+        # Retrieve the nodes that have a degree greater than 2
+        # Naturally this will be the majority of the nodes left
+        segment_ids = graph.vs.select(_degree_gt=2)
+        subg_segments = graph.subgraph(segment_ids)
+
+        # Eliminate 1 degree edges connected to the cliques
+        while True:
+            count = len(subg_segments.vs.select(_degree_lt=2))
+            if count == 0:
+                break
+            subg_segments = subg_segments.subgraph(
+                subg_segments.vs.select(_degree_gt=1)
+            )
+        # Get the maximal cliques that have 3-4 nodes
+        cliques = [clique for clique in subg_segments.maximal_cliques(l_bound, u_bound)]
+
+        # Keep the cliques that have a max given distance between their nodes (i.e max 10 pixels)
+        cliques = [
+            clique for clique in cliques if max_distance(subg_segments.vs[clique]) < 11
+        ]
+    else:
+        segment_ids = graph.vs.select(_degree_gt=0)
+        subg_segments = graph.subgraph(segment_ids)
+
+        # Get the maximal cliques
+        cliques = [
+            clique for clique in subg_segments.maximal_cliques(l_bound, u_bound)
+        ]  # if 2 < len(clique) < 5]
+        # Keep the cliques that have a max given distance between their nodes (i.e max 10 pixels)
+        cliques = [
+            clique for clique in cliques if max_distance(subg_segments.vs[clique]) <= 4
+        ]
+
+        # Create a subgraph from those cliques
+        subg_segments = subg_segments.subgraph(list(chain(*cliques)))
+
+        # Get updated connected components
+        cliques = [clique for clique in subg_segments.components()]
+
+        # Remove the "long" edges from the subg_segments which connect neighboring cliques
+        edges_to_remove = []
+        for edge in subg_segments.es():
+            src_node_id = edge.source
+            trgt_node_id = edge.target
+            src_node = subg_segments.vs[edge.source]
+            trgt_node = subg_segments.vs[edge.target]
+
+            if max_distance_vs([src_node, trgt_node]) > 4:
+                edges_to_remove.append((src_node_id, trgt_node_id))
+
+        subg_segments.delete_edges(edges_to_remove)
+
+        # Lastly re-get the connected components cliques
+        cliques = [clique for clique in subg_segments.components()]
+
+    return subg_segments, cliques
+
+
+def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> None:
+    assert e_fts, "Edge features list is empty"
+    # Which edge feature to keep? Largest avg radius or longest length?
+    max_length = 0
+    max_idx = 0
+    for i in idxs:
+        if e_fts[i].segment_length > max_length:
+            max_length = e_fts[i].segment_length
+            max_idx = i
+
+    for i in idxs:
+        if i != max_idx:
+            e_fts.pop(i)
+
+
+def simplify_more(graph, subg_segments, cliques, vis=False):
+    # NOTE: Using globals is not advised. The only reason they were used was to reduce
+    # the complexity of the functions and the arguments passed.
+    # This behaviour should probably be refactored down the line.
+    global vertices_to_remove
+    global nodes_to_keep_track
+    global src_cl_idxs
+    global src_idx
+    src_idx = 0
+    src_cl_idxs = []
+    vertices_to_remove = []
+    nodes_to_keep_track = []
+
+    vertices_to_remove.extend(subg_segments.vs[clique]["id"] for clique in cliques)
+    # Flatten the list of lists
+    vertices_to_remove = list(chain.from_iterable(vertices_to_remove))
+    # print("Vertices to remove: ", vertices_to_remove)
+
+    new_vs = []
+    e_features = []
+    # Group these cliques of points into one point and account for the neighbors
+    # in the original graph so we don't miss connections
+    for clique in cliques:
+        # Don't use the one from graph processing as its slightly different
+        # v_info, neighbors = GProcess.create_new_vertex(graph, subg_segments.vs[clique])
+        v_info, neighbors, edge_features = create_new_vertex(
+            graph, subg_segments.vs[clique]
+        )
+        # print(neighbors)
+        new_vs.append((v_info, neighbors))
+        e_features.extend(edge_features)
+
+        src_idx += 1
+
+    # Create a list that is basically the target clique index
+    trgt_cl_idxs = []
+    # For every node that was kept track of earlier find its clique index
+    for node in nodes_to_keep_track:
+        # node is the id of the node
+        for index, clique in enumerate(cliques):
+            if node in subg_segments.vs[clique]["id"]:
+                trgt_cl_idxs.append(index)
+                break
+
+    # Print what we have so far
+    # print(src_cl_idxs, trgt_cl_idxs, nodes_to_keep_track)
+
+    new_edges = []
+    new_v_indices = []
+    # Add new vertices that were created
+    for vertex_group in new_vs:
+        vertex_info = vertex_group[0]
+        neighbors = vertex_group[1]
+        new_v = graph.add_vertex(
+            radius=vertex_info["radius"],
+            coords=vertex_info["coords"],
+            x=vertex_info["x"],
+            y=vertex_info["y"],
+            # For testing
+            # color="yellow",
+            # size=5,
+        )
+
+        new_edges.extend(sorted(tuple([new_v.index, nb]) for nb in neighbors))
+        new_v_indices.append(new_v.index)
+
+    # Prints to hopefully help with correctly dealing with edge features.
+    for i, it in enumerate(new_edges):
+        print(i, it, sep=" - ")
+    for i, it in enumerate(e_features):
+        print(i, it, sep=" - ")
+
+    # Create dictionary of new edges
+    edge_dict = {k: [] for k in new_edges}
+
+    for idx, edge in enumerate(new_edges):
+        edge_dict[edge].append(idx)
+
+    for idx, val in enumerate(edge_dict.values()):
+        if len(val) > 1:
+            # Modify edge features list in place
+            calc_new_edge_features(e_features, val)
+
+    temp_new_edges = []
+    # Add the edges between two new nodes added from neighboring cliques
+    for new_edge_src, new_edge_trgt in zip(src_cl_idxs, trgt_cl_idxs):
+        temp_new_edges.append(
+            tuple(sorted([new_v_indices[new_edge_src], new_v_indices[new_edge_trgt]]))
+        )
+        # new_edges.append(
+        #     tuple(sorted([new_v_indices[new_edge_src], new_v_indices[new_edge_trgt]]))
+        # )
+
+    # Remove duplicate edges
+    temp_new_edges = [edges for edges in set(temp_new_edges)]
+    new_features = simplified_branch_segment_ft_extraction(graph, temp_new_edges)
+    # # TODO: concat new features with the rest of the edge features
+    features_to_add = e_features
+    features_to_add.extend(new_features)
+    lengths, turtuosities, radii_avg, radii_max, radii_min, radii_std = (
+        save_feature_results(
+            graph=None, features=features_to_add, edges=None, simplify_graph=False
+        )
+    )
+
+    edges_to_add = [edge for edge in edge_dict.keys()]
+    edges_to_add.extend(temp_new_edges)
+
+    for i, it in enumerate(features_to_add):
+        print(i, it, sep=" - ")
+
+    graph.add_edges(
+        edges_to_add,
+        {
+            "length": lengths,
+            "turtuosity": turtuosities,
+            "radius_avg": radii_avg,
+            "radius_max": radii_max,
+            "radius_min": radii_min,
+            "radius_std": radii_std,
+        },
+    )
+
+    # graph.add_edges(edges_to_add)  # Add the new edges
+    graph.delete_vertices(vertices_to_remove)  # Delete old vertices
+
+    # Delete the id attribute since its not useful anymore - IMPORTANT
+    del graph.vs["id"]
+
+    # Cleanup globals
+    del vertices_to_remove
+    del nodes_to_keep_track
+    del src_cl_idxs
+    del src_idx
+
+    if vis:
+        # Visualize the reached segments
+        fig, ax = plt.subplots()
+        visual_style = {}
+        visual_style["vertex_size"] = 5
+        # visual_style["vertex_color"] = "green"
+        ig.plot(graph, target=ax, **visual_style)
+        visual_style["vertex_size"] = 10
+        visual_style["vertex_color"] = "red"
+        ig.plot(subg_segments, target=ax, **visual_style)
+        ax.invert_yaxis()
+        visual_style["vertex_size"] = 10
+        visual_style["vertex_color"] = "blue"
+        visual_style["edge_color"] = "red"
+        for clique in cliques:
+            ig.plot(subg_segments.subgraph(clique), target=ax, **visual_style)
+
+        fig, ax = plt.subplots()
+        visual_style = {}
+        visual_style["vertex_size"] = 5
+        # visual_style["vertex_color"] = "green"
+        ig.plot(graph, target=ax, **visual_style)
+        ax.invert_yaxis()
+
+        plt.show()
+
+
+def simplify_more_sclass1(graph, iters=3, vis=False):
+    # Simplify the graph further to combine final 'bifurcation' points that are clustered
+    # or that are simply very close to each other
+
+    # Not really sure if this is a good approach or not
+    # Might not be since it adds more change to the graph structure.
+
+    logger.info("Simplifying the graph further - Bifurcation Clusters")
+
+    for _ in range(iters):
+        subg_segments, cliques = get_cliques(graph, l_bound=3, u_bound=5)
+
+        simplify_more(graph, subg_segments, cliques, vis)
+
+    return None
+
+
+def simplify_more_sclass2(graph, iters=3, vis=False):
+
+    ### Here we can extend this simplification with the idea of grouping pairs of
+    ### nodes that are within a given distance from each other
+    ### This must be separate from the above simplification to avoid overlaps.
+
+    logger.info("Simplifying the graph further - Neighbooring node pairs")
+
+    for _ in range(iters):
+        subg_segments, cliques = get_cliques(
+            graph, l_bound=2, u_bound=3, bifurcation_cliques=False
+        )
+
+        simplify_more(graph, subg_segments, cliques, vis)
+
+    return None
 
 
 def main():
