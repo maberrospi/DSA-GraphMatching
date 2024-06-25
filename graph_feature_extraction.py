@@ -452,19 +452,17 @@ def find_new_vertex_neighbors(graph, subg_vs):
 
     neighbors = []
     e_features = []
+    between_clique_e_features = []
     # print(f'Subgraph ids: {subg_vs["id"]}')
     clique_nb_ids = subg_vs["id"]
-    for graph_v, subg_v in zip(graph_vs, subg_vs):
 
+    for graph_v in graph_vs:
         # The vertex IDs since up to here they are the same as the vertex index
-        # Maybe use extend here
         cur_nbs = [
             nb["id"] for nb in graph_v.neighbors() if nb["id"] not in clique_nb_ids
         ]
 
-        neighbors += [
-            nb["id"] for nb in graph_v.neighbors() if nb["id"] not in clique_nb_ids
-        ]
+        neighbors += cur_nbs
 
         num_of_all_nbs = len(neighbors)
 
@@ -473,17 +471,30 @@ def find_new_vertex_neighbors(graph, subg_vs):
             e_id = graph.get_eid(graph_v["id"], nb)
             e_features.append(FeatureVars(*graph.es[e_id].attributes().values()))
 
-        # print(f"Neighbors: {neighbors}")
-    for neighbor in neighbors[:]:  # Iterate cloned neighbors
+    nbs_to_remove = []
+    visited_nb_idxs = []
+    for neighbor in neighbors:
         if neighbor in vertices_to_remove:
-            index = neighbors.index(neighbor)
-            nodes_to_keep_track.append(neighbors.pop(index))
-            e_features.pop(index)
+            nbs_to_remove.append(neighbor)
+            nb_idxs = [i for i, nb in enumerate(neighbors) if nb == neighbor]
+            nodes_to_keep_track.append(neighbor)
+            # Ensure no duplicate edge features are added
+            for nb_idx in nb_idxs:
+                if nb_idx not in visited_nb_idxs:
+                    between_clique_e_features.append(e_features[nb_idx])
+                    visited_nb_idxs.append(nb_idx)
+                    break
 
-    # print(len(neighbors))
-    # print(e_features, len(e_features), sep=", ")
+    neighbors = [nb for nb in neighbors if nb not in nbs_to_remove]
+    test_ft = e_features
+    e_features = [ft for ft in e_features if ft not in between_clique_e_features]
 
-    return neighbors, e_features, num_of_all_nbs
+    # print("At new vertex:")
+    # print(neighbors, test_ft, num_of_all_nbs, between_clique_e_features, sep="\n")
+    # if len(neighbors) != len(e_features):
+    #     print(neighbors, test_ft, num_of_all_nbs, between_clique_e_features, sep="\n")
+
+    return neighbors, e_features, between_clique_e_features, num_of_all_nbs
 
 
 def create_new_vertex(graph, subg_vs):
@@ -497,7 +508,9 @@ def create_new_vertex(graph, subg_vs):
         "y": new_coords[0],
         "x": new_coords[1],
     }
-    neighbors, e_features, num_of_all_nbs = find_new_vertex_neighbors(graph, subg_vs)
+    neighbors, e_features, between_clq_e_fts, num_of_all_nbs = (
+        find_new_vertex_neighbors(graph, subg_vs)
+    )
 
     # print(num_of_all_nbs, len(neighbors))
     if num_of_all_nbs != len(neighbors):
@@ -505,7 +518,7 @@ def create_new_vertex(graph, subg_vs):
             # append the source clique index
             src_cl_idxs.append(src_idx)
 
-    return [new_vertex_info, neighbors, e_features]
+    return [new_vertex_info, neighbors, e_features, between_clq_e_fts]
 
 
 def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
@@ -541,7 +554,7 @@ def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
         cliques = [
             clique for clique in subg_segments.maximal_cliques(l_bound, u_bound)
         ]  # if 2 < len(clique) < 5]
-        # Keep the cliques that have a max given distance between their nodes (i.e max 10 pixels)
+        # Keep the cliques that have a max given distance between their nodes (i.e max 4 pixels)
         cliques = [
             clique for clique in cliques if max_distance(subg_segments.vs[clique]) <= 4
         ]
@@ -571,7 +584,7 @@ def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
     return subg_segments, cliques
 
 
-def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> None:
+def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> list:
     assert e_fts, "Edge features list is empty"
     # Which edge feature to keep? Largest avg radius or longest length?
     max_length = 0
@@ -581,12 +594,12 @@ def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> None:
             max_length = e_fts[i].segment_length
             max_idx = i
 
-    for i in idxs:
-        if i != max_idx:
-            e_fts.pop(i)
+    to_remove = [i for i in idxs if i != max_idx]
+
+    return to_remove
 
 
-def simplify_more(graph, subg_segments, cliques, vis=False):
+def simplify_more(graph, subg_segments, cliques, vis=False, verbose=False):
     # NOTE: Using globals is not advised. The only reason they were used was to reduce
     # the complexity of the functions and the arguments passed.
     # This behaviour should probably be refactored down the line.
@@ -606,19 +619,24 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
 
     new_vs = []
     e_features = []
+    between_clq_e_fts = []
     # Group these cliques of points into one point and account for the neighbors
     # in the original graph so we don't miss connections
     for clique in cliques:
-        # Don't use the one from graph processing as its slightly different
-        # v_info, neighbors = GProcess.create_new_vertex(graph, subg_segments.vs[clique])
-        v_info, neighbors, edge_features = create_new_vertex(
+        v_info, neighbors, edge_features, between_clq_edge_fts = create_new_vertex(
             graph, subg_segments.vs[clique]
         )
-        # print(neighbors)
         new_vs.append((v_info, neighbors))
         e_features.extend(edge_features)
+        between_clq_e_fts.extend(between_clq_edge_fts)
 
         src_idx += 1
+
+    # print("Before extending: ")
+    # print(len(e_features))
+
+    # Append between clique edge features to all edge features
+    e_features.extend(between_clq_e_fts)
 
     # Create a list that is basically the target clique index
     trgt_cl_idxs = []
@@ -644,47 +662,47 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
             coords=vertex_info["coords"],
             x=vertex_info["x"],
             y=vertex_info["y"],
-            # For testing
+            # For vis
             # color="yellow",
             # size=5,
         )
 
-        new_edges.extend(sorted(tuple([new_v.index, nb]) for nb in neighbors))
+        new_edges.extend(tuple([new_v.index, nb]) for nb in neighbors)
         new_v_indices.append(new_v.index)
-
-    # Prints to hopefully help with correctly dealing with edge features.
-    for i, it in enumerate(new_edges):
-        print(i, it, sep=" - ")
-    for i, it in enumerate(e_features):
-        print(i, it, sep=" - ")
-
-    # Create dictionary of new edges
-    edge_dict = {k: [] for k in new_edges}
-
-    for idx, edge in enumerate(new_edges):
-        edge_dict[edge].append(idx)
-
-    for idx, val in enumerate(edge_dict.values()):
-        if len(val) > 1:
-            # Modify edge features list in place
-            calc_new_edge_features(e_features, val)
-
+    # print(len(new_edges))
+    # Combine new edges and between clique new edges
     temp_new_edges = []
     # Add the edges between two new nodes added from neighboring cliques
     for new_edge_src, new_edge_trgt in zip(src_cl_idxs, trgt_cl_idxs):
         temp_new_edges.append(
             tuple(sorted([new_v_indices[new_edge_src], new_v_indices[new_edge_trgt]]))
         )
-        # new_edges.append(
-        #     tuple(sorted([new_v_indices[new_edge_src], new_v_indices[new_edge_trgt]]))
-        # )
+    new_edges.extend(temp_new_edges)
 
-    # Remove duplicate edges
-    temp_new_edges = [edges for edges in set(temp_new_edges)]
-    new_features = simplified_branch_segment_ft_extraction(graph, temp_new_edges)
-    # # TODO: concat new features with the rest of the edge features
+    # print("Before removing duplicates: ")
+    # for i, it in enumerate(new_edges):
+    #     print(i, it, sep=" - ")
+    # for i, it in enumerate(e_features):
+    #     print(i, it, sep=" - ")
+    # print(len(new_edges), len(e_features))
+
+    # Remove duplicates and modify edge features accordingly
+    # Dicts maintain insertion order since py 3.7
+    edge_dict = {k: [] for k in new_edges}
+
+    for idx, edge in enumerate(new_edges):
+        edge_dict[edge].append(idx)
+
+    e_features_to_remove = []
+    for idx, val in enumerate(edge_dict.values()):
+        if len(val) > 1:
+            e_features_to_remove.extend(calc_new_edge_features(e_features, val))
+
+    e_features = [
+        ft for idx, ft in enumerate(e_features[:]) if idx not in e_features_to_remove
+    ]
+
     features_to_add = e_features
-    features_to_add.extend(new_features)
     lengths, turtuosities, radii_avg, radii_max, radii_min, radii_std = (
         save_feature_results(
             graph=None, features=features_to_add, edges=None, simplify_graph=False
@@ -692,10 +710,19 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
     )
 
     edges_to_add = [edge for edge in edge_dict.keys()]
-    edges_to_add.extend(temp_new_edges)
 
-    for i, it in enumerate(features_to_add):
-        print(i, it, sep=" - ")
+    # Prints to hopefully help with correctly dealing with edge features.
+    # print("After removing duplicates: ")
+    # for i, it in enumerate(edges_to_add):
+    #     print(i, it, sep=" - ")
+    # for i, it in enumerate(features_to_add):
+    #     print(i, it, sep=" - ")
+    # print(len(edges_to_add), len(features_to_add))
+
+    if verbose:
+        print(f"Number of removed vertices: {len(vertices_to_remove)}")
+        print(f"Number of added edges: {len(edges_to_add)}")
+        print(f"Number of added vertices: {len(new_vs)}")
 
     graph.add_edges(
         edges_to_add,
@@ -708,18 +735,6 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
             "radius_std": radii_std,
         },
     )
-
-    # graph.add_edges(edges_to_add)  # Add the new edges
-    graph.delete_vertices(vertices_to_remove)  # Delete old vertices
-
-    # Delete the id attribute since its not useful anymore - IMPORTANT
-    del graph.vs["id"]
-
-    # Cleanup globals
-    del vertices_to_remove
-    del nodes_to_keep_track
-    del src_cl_idxs
-    del src_idx
 
     if vis:
         # Visualize the reached segments
@@ -738,6 +753,18 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
         for clique in cliques:
             ig.plot(subg_segments.subgraph(clique), target=ax, **visual_style)
 
+    graph.delete_vertices(vertices_to_remove)  # Delete old vertices
+
+    # Delete the id attribute since its not useful anymore - IMPORTANT
+    del graph.vs["id"]
+
+    # Cleanup globals
+    del vertices_to_remove
+    del nodes_to_keep_track
+    del src_cl_idxs
+    del src_idx
+
+    if vis:
         fig, ax = plt.subplots()
         visual_style = {}
         visual_style["vertex_size"] = 5
@@ -748,7 +775,7 @@ def simplify_more(graph, subg_segments, cliques, vis=False):
         plt.show()
 
 
-def simplify_more_sclass1(graph, iters=3, vis=False):
+def simplify_more_sclass1(graph, iters=3, vis=False, verbose=False):
     # Simplify the graph further to combine final 'bifurcation' points that are clustered
     # or that are simply very close to each other
 
@@ -760,25 +787,25 @@ def simplify_more_sclass1(graph, iters=3, vis=False):
     for _ in range(iters):
         subg_segments, cliques = get_cliques(graph, l_bound=3, u_bound=5)
 
-        simplify_more(graph, subg_segments, cliques, vis)
+        simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
     return None
 
 
-def simplify_more_sclass2(graph, iters=3, vis=False):
+def simplify_more_sclass2(graph, iters=3, vis=False, verbose=False):
 
     ### Here we can extend this simplification with the idea of grouping pairs of
     ### nodes that are within a given distance from each other
     ### This must be separate from the above simplification to avoid overlaps.
 
-    logger.info("Simplifying the graph further - Neighbooring node pairs")
+    logger.info("Simplifying the graph further - Clustered node pairs")
 
     for _ in range(iters):
         subg_segments, cliques = get_cliques(
             graph, l_bound=2, u_bound=3, bifurcation_cliques=False
         )
 
-        simplify_more(graph, subg_segments, cliques, vis)
+        simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
     return None
 
