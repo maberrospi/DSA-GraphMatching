@@ -786,7 +786,8 @@ def simplify_more_sclass1(graph, iters=3, vis=False, verbose=False):
 
     for _ in range(iters):
         subg_segments, cliques = get_cliques(graph, l_bound=3, u_bound=5)
-
+        if len(cliques) == 0:
+            break
         simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
     return None
@@ -804,7 +805,8 @@ def simplify_more_sclass2(graph, iters=3, vis=False, verbose=False):
         subg_segments, cliques = get_cliques(
             graph, l_bound=2, u_bound=3, bifurcation_cliques=False
         )
-
+        if len(cliques) == 0:
+            break
         simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
     return None
