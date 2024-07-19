@@ -154,7 +154,7 @@ def concat_extracted_features_v2(graph, feat_map, inplace=True):
     # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
     feat_attributes = np.zeros((len(graph.vs), feat_map.shape[0]))
     # print(feat_attributes.shape)
-    neighb_size = 24  # 8 or 24
+    neighb_size = 48  # 8, 24 or 48
     calc_features = np.zeros(feat_map.shape[0])
 
     # Loop through the vertices in the graph and populate the feature attributes
@@ -235,6 +235,13 @@ def candidate_neighbors(pt, hood_size=8):
         pt_list = []
         for i in range(-2, 3):
             for j in range(-2, 3):
+                pt_list.append((pt[0] + i, pt[1] + j))
+        pt_list.remove((pt[0], pt[1]))
+        return pt_list
+    elif hood_size == 48:
+        pt_list = []
+        for i in range(-3, 4):
+            for j in range(-3, 4):
                 pt_list.append((pt[0] + i, pt[1] + j))
         pt_list.remove((pt[0], pt[1]))
         return pt_list
@@ -498,6 +505,10 @@ def analyze_simplify_graph(graph, visualize=False):
     # Graph is a global variable is its simplified in place
     GFeatExt.save_feature_results(graph, features, edges, simplify_graph=True)
 
+    # Further simplification with sclass1 and sclass2
+    GFeatExt.simplify_more_sclass1(graph, vis=False, verbose=True)
+    GFeatExt.simplify_more_sclass2(graph, vis=False, verbose=True)
+
     if visualize:
         logger.info("Visualizing the filtered and final simplified graphs")
         # Visualize the final simplified graph
@@ -508,11 +519,6 @@ def analyze_simplify_graph(graph, visualize=False):
         ig.plot(graph, target=ax, **visual_style)
         ax.invert_yaxis()
         plt.show()
-
-    # Testing out the further simplification of the graph
-    # This needs some work and is not yet functional
-    GFeatExt.simplify_more_sclass1(graph, vis=False)
-    GFeatExt.simplify_more_sclass2(graph, vis=False)
 
 
 def create_graph(
@@ -533,7 +539,7 @@ def create_graph(
     sk_graph.vs["coords"] = skeleton_pts
     sk_graph.vs["y"] = skeleton_pts[:, 0]
     sk_graph.vs["x"] = skeleton_pts[:, 1]
-    # Can extend the radius to the mEDT introduce in VesselVio if needed
+    # Can extend the radius to the mEDT introduced in VesselVio if needed
     sk_graph.vs["radius"] = dst_transform[skeleton_img != 0]
 
     # Find and add the edges
@@ -560,8 +566,6 @@ def create_graph(
     # print(
     #     "Summary structure: 4-char long code, number of vertices, number of edges -- graph name"
     # )
-
-    # GFeatExt.simplify_more(sk_graph)
 
     # Analyze the graph segments and simplify it further maintaining only bifurcation points
     analyze_simplify_graph(sk_graph, visualize=vis)
@@ -597,7 +601,7 @@ def main():
     # IMG_SEQ_DIR_PATH = (
     #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     # )
-    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/1"
+    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/0"
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
     if not segm_images:
@@ -615,7 +619,7 @@ def main():
         skeleton_points,
         distance_transform[img_ind],
         g_name="gr",
-        vis=False,
+        vis=True,
         verbose=True,
     )
     # skeleton_points = find_centerlines(skeletons[img_ind + 1])
