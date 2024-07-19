@@ -416,7 +416,7 @@ def simplified_branch_segment_ft_extraction(graph, new_edges):
     return features
 
 
-def max_distance_vs(vertices: list):
+def max_distance_vs(vertices: list) -> int:
     # List of igraph.Vertex objects
     assert len(vertices) == 2, "Vertices length can only be two"
 
@@ -432,7 +432,7 @@ def max_distance_vs(vertices: list):
     return max_dist
 
 
-def max_distance(clique: ig.VertexSeq):
+def max_distance(clique: ig.VertexSeq) -> int:
     # Calculate the max distance between the node pixels in a given clique
     # The distance is measure in x and y pixel difference
     max_dist = 0
@@ -447,7 +447,9 @@ def max_distance(clique: ig.VertexSeq):
     return max_dist
 
 
-def find_new_vertex_neighbors(graph, subg_vs):
+def find_new_vertex_neighbors(
+    graph: ig.Graph, subg_vs: ig.Graph
+) -> tuple[list[int], list[FeatureVars], list[FeatureVars], int]:
     graph_vs = graph.vs[subg_vs["id"]]
 
     neighbors = []
@@ -497,7 +499,9 @@ def find_new_vertex_neighbors(graph, subg_vs):
     return neighbors, e_features, between_clique_e_features, num_of_all_nbs
 
 
-def create_new_vertex(graph, subg_vs):
+def create_new_vertex(
+    graph: ig.Graph, subg_vs: ig.Graph
+) -> tuple[dict[str, any], list[int], list[FeatureVars], list[FeatureVars]]:
     new_radius = np.mean(subg_vs["radius"])
     new_coords = np.mean(subg_vs["coords"], axis=0)
 
@@ -521,7 +525,9 @@ def create_new_vertex(graph, subg_vs):
     return [new_vertex_info, neighbors, e_features, between_clq_e_fts]
 
 
-def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
+def get_cliques(
+    graph: ig.Graph, l_bound: int = 3, u_bound: int = 5, bifurcation_cliques=True
+) -> tuple[ig.Graph, list[list[int]]]:
     # Assign all vertices their original ID
     graph.vs["id"] = np.arange(graph.vcount())
 
@@ -584,7 +590,7 @@ def get_cliques(graph, l_bound=3, u_bound=5, bifurcation_cliques=True):
     return subg_segments, cliques
 
 
-def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> list:
+def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> list[int]:
     assert e_fts, "Edge features list is empty"
     # Which edge feature to keep? Largest avg radius or longest length?
     max_length = 0
@@ -599,7 +605,13 @@ def calc_new_edge_features(e_fts: list[FeatureVars], idxs: list[int]) -> list:
     return to_remove
 
 
-def simplify_more(graph, subg_segments, cliques, vis=False, verbose=False):
+def simplify_more(
+    graph: ig.Graph,
+    subg_segments: ig.Graph,
+    cliques: list[list[int]],
+    vis=False,
+    verbose=False,
+) -> None:
     # NOTE: Using globals is not advised. The only reason they were used was to reduce
     # the complexity of the functions and the arguments passed.
     # This behaviour should probably be refactored down the line.
@@ -775,7 +787,9 @@ def simplify_more(graph, subg_segments, cliques, vis=False, verbose=False):
         plt.show()
 
 
-def simplify_more_sclass1(graph, iters=3, vis=False, verbose=False):
+def simplify_more_sclass1(
+    graph: ig.Graph, iters: int = 3, vis=False, verbose=False
+) -> None:
     # Simplify the graph further to combine final 'bifurcation' points that are clustered
     # or that are simply very close to each other
 
@@ -793,7 +807,9 @@ def simplify_more_sclass1(graph, iters=3, vis=False, verbose=False):
     return None
 
 
-def simplify_more_sclass2(graph, iters=3, vis=False, verbose=False):
+def simplify_more_sclass2(
+    graph: ig.Graph, iters: int = 3, vis=False, verbose=False
+) -> None:
 
     ### Here we can extend this simplification with the idea of grouping pairs of
     ### nodes that are within a given distance from each other
