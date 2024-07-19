@@ -122,7 +122,7 @@ def prepare_data(dicom_dir="Dicoms", nifti_dir="Niftis", minip_dir="Minip"):
                 cum_time_vector = int(ds.FrameTime) * np.array(range(ds.NumberOfFrames))
             else:
                 logger.error("Missing time info: {}".format(dicom))
-                return
+                break
             non_duplicated_frame_indices = np.where(
                 ~pd.DataFrame(cum_time_vector).duplicated()
             )
