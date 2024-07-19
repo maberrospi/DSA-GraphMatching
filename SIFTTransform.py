@@ -121,6 +121,9 @@ def calculate_transform(preEVTkp, postEVTkp, matches, feat_extr="sift"):
     # print(preEVT_matched_kpts.shape)
     # print(postEVT_matched_kpts.shape)
 
+    # Need at least 4 matching points to calculate homography
+    if preEVT_matched_kpts.shape[0] < 4:
+        return np.eye(3, dtype=np.float32)
     # Compute homography - RANSAC is built-in this function (Detects outliers and removes them)
     H, status = cv2.findHomography(
         postEVT_matched_kpts, preEVT_matched_kpts, cv2.RANSAC, 5.0  # orig 5.0
@@ -150,31 +153,33 @@ def apply_transformation(transform, preEVT, postEVT, ret=False, vis=False):
     #     postEVT, transform, (postEVT.shape[1], postEVT.shape[0])
     # )
 
-    # Plot pre,post and transformed post images
-    fig, axs = plt.subplots(1, 3, figsize=(12, 6))
-    axs[0].imshow(preEVT, cmap="gray")
-    axs[1].imshow(postEVT, cmap="gray")
-    axs[2].imshow(warped_image, cmap="gray")
-    axs[0].set_title("Pre-EVT")
-    axs[1].set_title("Post-EVT")
-    axs[2].set_title("Transformed Post-EVT")
+    if vis:
+        # Plot pre,post and transformed post images
+        fig, axs = plt.subplots(1, 3, figsize=(12, 6))
+        axs[0].imshow(preEVT, cmap="gray")
+        axs[1].imshow(postEVT, cmap="gray")
+        axs[2].imshow(warped_image, cmap="gray")
+        axs[0].set_title("Pre-EVT")
+        axs[1].set_title("Post-EVT")
+        axs[2].set_title("Transformed Post-EVT")
 
     # Warped image to grayscale
     if preEVT.ndim == 3:
         warped_image = cv2.cvtColor(warped_image, cv2.COLOR_BGR2GRAY)
         preEVT = cv2.cvtColor(preEVT, cv2.COLOR_BGR2GRAY)
 
-    # Overlay transformed and pre-EVT images
-    cmap_artery_pre = colors.ListedColormap(["white", "red"])  # Not used after all.
-    cmap_artery_post = colors.ListedColormap(["white", "green"])
-    fig, axs = plt.subplots(1, 3, figsize=(12, 6))
-    axs[0].imshow(preEVT, cmap="gray")
-    axs[0].imshow(warped_image, cmap="Purples", alpha=0.5)
-    axs[1].imshow(preEVT, cmap="gray")
-    axs[2].imshow(warped_image, cmap="Purples")
-    axs[0].set_title("Overlayed Transform")
-    axs[1].set_title("Pre-EVT")
-    axs[2].set_title("Transformed Post-EVT")
+    if vis:
+        # Overlay transformed and pre-EVT images
+        cmap_artery_pre = colors.ListedColormap(["white", "red"])  # Not used after all.
+        cmap_artery_post = colors.ListedColormap(["white", "green"])
+        fig, axs = plt.subplots(1, 3, figsize=(12, 6))
+        axs[0].imshow(preEVT, cmap="gray")
+        axs[0].imshow(warped_image, cmap="Purples", alpha=0.5)
+        axs[1].imshow(preEVT, cmap="gray")
+        axs[2].imshow(warped_image, cmap="Purples")
+        axs[0].set_title("Overlayed Transform")
+        axs[1].set_title("Pre-EVT")
+        axs[2].set_title("Transformed Post-EVT")
 
     if ret:
         return warped_image
@@ -288,6 +293,55 @@ def load_pre_post_imgs(img_paths: list) -> list:
     return images
 
 
+def remove_black_borders(image):
+
+    border_rows = []
+    has_left_border = False
+    has_right_border = False
+    if image[0, 0] == 0:
+        has_left_border = True
+        # Find the last column containing black pixels
+        for row in range(0, image.shape[0]):
+            for idx, px in enumerate(image[row, :]):
+                if px != 0:
+                    # print(row, idx)
+                    left_px_val = px
+                    left_col_idx = idx
+                    break
+            else:
+                border_rows.append(row)
+                continue
+            break
+
+    # Do the same things in reverse for the opposite side
+    # Check if the pre-EVT images contains boundary
+    if image[-1, -1] == 0:
+        has_right_border = True
+        # Find the last column containing black pixels
+        for row in range(image.shape[0] - 1, -1, -1):
+            for idx, px in enumerate(image[row, ::-1]):
+                if px != 0:
+                    right_px_val = px
+                    right_col_idx = image.shape[1] - idx
+                    break
+            else:
+                border_rows.append(row)
+                continue
+            break
+
+    # Change value of all pixels in that left and right column range to the first colored pixel value
+    if has_left_border:
+        image[:, :left_col_idx] = left_px_val
+    if has_right_border:
+        image[:, right_col_idx:] = right_px_val
+
+    # Change the border rows if there are any
+    if border_rows:
+        image[border_rows, :] = left_px_val
+
+    return image
+
+
 def remove_borders(preevt, postevt):
     # If the top left pixel is not black there is likely no boundary
     if preevt[0, 0] != 0 and postevt[0, 0] != 0:
@@ -295,56 +349,14 @@ def remove_borders(preevt, postevt):
 
     pre = np.copy(preevt)
     post = np.copy(postevt)
-    # Check if the pre-EVT images contains boundary
-    if pre[0, 0] == 0:
-        # Find the last column containing black pixels
-        for idx, px in enumerate(pre[0, :]):
-            if px != 0:
-                px_val = px
-                col_idx = idx
-                break
-        # Change value of all pixels in that column range to the first colored pixel value
-        # print(f"Pixel value: {px_val}/Col_idx: {col_idx}")
-        pre[:, :col_idx] = px_val
-        # pre[:, -col_idx + 1 :] = px_val
 
-    # Check if the post-EVT images contains boundary
-    if post[0, 0] == 0:
-        # Find the last column containing black pixels
-        for idx, px in enumerate(post[0, :]):
-            if px != 0:
-                px_val = px
-                col_idx = idx
-                break
-        # Change value of all pixels in that column range to the first colored pixel value
-        # print(f"Pixel value: {px_val}/Col_idx: {col_idx}")
-        post[:, :col_idx] = px_val
-        # post[:, -col_idx + 1 :] = px_val
+    # fig, axs = plt.subplots(1, 2, figsize=(6, 6))
+    # axs[0].imshow(pre, cmap="gray")
+    # axs[1].imshow(post, cmap="gray")
+    # plt.show()
 
-    # Do the same things in reverse for the opposite side
-    # Check if the pre-EVT images contains boundary
-    if pre[-1, -1] == 0:
-        # Find the last column containing black pixels
-        for idx, px in enumerate(pre[0, ::-1]):
-            if px != 0:
-                px_val = px
-                col_idx = pre.shape[1] - idx
-                break
-        # Change value of all pixels in that column range to the first colored pixel value
-        # print(f"Pixel value: {px_val}/Col_idx: {col_idx}")
-        pre[:, col_idx:] = px_val
-
-    # Check if the post-EVT images contains boundary
-    if post[-1, -1] == 0:
-        # Find the last column containing black pixels
-        for idx, px in enumerate(post[0, ::-1]):
-            if px != 0:
-                px_val = px
-                col_idx = post.shape[1] - idx
-                break
-        # Change value of all pixels in that column range to the first colored pixel value
-        # print(f"Pixel value: {px_val}/Col_idx: {col_idx}")
-        post[:, col_idx:] = px_val
+    pre = remove_black_borders(pre)
+    post = remove_black_borders(post)
 
     return pre, post
 
@@ -370,15 +382,23 @@ def remove_unwanted_text(preevtimg, postevtimg):
 
     # Find color to mask the text areas
     # Find the first column with non-black px value
-    for px in preevt[0, :]:
-        if px != 0:
-            px_val_pre = px
-            break
+    for row in range(0, preevt.shape[0]):
+        for px in preevt[row, :]:
+            if px != 0:
+                px_val_pre = px
+                break
+        else:
+            continue
+        break
 
-    for px in postevt[0, :]:
-        if px != 0:
-            px_val_post = px
-            break
+    for row in range(0, postevt.shape[0]):
+        for px in postevt[row, :]:
+            if px != 0:
+                px_val_post = px
+                break
+        else:
+            continue
+        break
 
     # Use contours to mask the text areas
     locations = []
@@ -416,7 +436,7 @@ def main():
     # postEVT = cv2.cvtColor(postEVT, cv2.COLOR_BGR2GRAY)
     # prepare_data()
     # IMG_DIR_PATH = "Minipv2/R0030/0"
-    IMG_DIR_PATH = "Niftisv2/R0030/0"
+    IMG_DIR_PATH = "Niftisv2/R0040/0"
     images_path = load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:
