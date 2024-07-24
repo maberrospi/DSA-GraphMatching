@@ -342,7 +342,7 @@ def class2_filter(graph, subg, clique):
     return [vertex_info, neighbors]
 
 
-def class2and3_decision(subg, cliques):
+def class2and3_decision(graph, subg, cliques):
     vertices_to_remove = []
     class_two = []
     class_three = []
@@ -350,7 +350,7 @@ def class2and3_decision(subg, cliques):
     for clique in cliques:
         vertices_to_remove.extend(subg.vs[clique]["id"])
         if len(clique) <= 50:
-            class_two.append(class2_filter(sk_graph, subg, clique))
+            class_two.append(class2_filter(graph, subg, clique))
         else:
             None
             # After observation I believe there is no need for this filter in our dataset
@@ -359,19 +359,21 @@ def class2and3_decision(subg, cliques):
     return [vertices_to_remove, class_two, class_three]
 
 
-def class2and3_filters(subg, cliques):
+def class2and3_filters(graph, subg, cliques):
     logger.info("Simplifying bifurcation clusters of connected components (Class 2)")
     new_edges = []
     vertices_to_remove = []
     class_two = []
     class_three = []
-    vertices_to_remove, class_two, class_three = class2and3_decision(subg, cliques)
+    vertices_to_remove, class_two, class_three = class2and3_decision(
+        graph, subg, cliques
+    )
 
     # Add new vertices from class two
     for vertex_group in class_two:
         vertex_info = vertex_group[0]
         neighbors = vertex_group[1]
-        new_v = sk_graph.add_vertex(
+        new_v = graph.add_vertex(
             radius=vertex_info["radius"],
             coords=vertex_info["coords"],
             x=vertex_info["x"],
@@ -383,13 +385,13 @@ def class2and3_filters(subg, cliques):
     return new_edges, vertices_to_remove
 
 
-def class1_filter(subg, cliques):
+def class1_filter(graph, subg, cliques):
     logger.info("Simplifying bifurcation clusters of node cliques (Class 1)")
     edges_to_remove = []
 
     for clique in cliques:
         # Get the original vertices
-        orig_graph_vs = sk_graph.vs[subg.vs[clique]["id"]]
+        orig_graph_vs = graph.vs[subg.vs[clique]["id"]]
 
         # Check to see if the cliques fit in our class
         if any(degree >= 5 for degree in orig_graph_vs.degree()):
@@ -454,7 +456,7 @@ def filter_graph(graph):
     # Isolate cliques comprising of potential bifurcation points
     subg, cliques = get_cliques(graph)
 
-    edges_to_remove = class1_filter(subg, cliques)
+    edges_to_remove = class1_filter(graph, subg, cliques)
     graph.delete_edges(edges_to_remove)
     total_removed_edges += len(edges_to_remove)
     print(f"Number of removed edges: {total_removed_edges}")
@@ -463,7 +465,7 @@ def filter_graph(graph):
 
     subg, cliques = get_cliques(graph, components=True)
 
-    edges_to_add, vertices_to_remove = class2and3_filters(subg, cliques)
+    edges_to_add, vertices_to_remove = class2and3_filters(graph, subg, cliques)
 
     # Remove duplicate edges
     edges_to_add = [edges_to_add for edges_to_add in set(edges_to_add)]
@@ -531,7 +533,8 @@ def create_graph(
     logger.info(f"Creating graph: {g_name}")
 
     # Create the graph
-    global sk_graph
+    # global sk_graph
+    # Changed to sk_graph seemingly happen in-place when passed to functions
     sk_graph = ig.Graph()
     sk_graph["name"] = g_name
     sk_graph.add_vertices(len(skeleton_pts))
