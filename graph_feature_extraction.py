@@ -161,39 +161,38 @@ def get_large_seg_path(graph, segm, segm_ids):
 
     # Visualization of what's going on if needed.
     # print(f"Segm length: {len(segm)}")
-    if len(endpoints) == 0:
-        print(segm_ids[endpoints[0]].index)
-        print([p.index for p in segm_ids[endpoints[0]].neighbors()])
-        fig, ax = plt.subplots()
-        visual_style = {}
-        visual_style["vertex_size"] = 20
-        visual_style["vertex_color"] = "green"
-        ig.plot(
-            graph.subgraph(
-                graph.vs[
-                    [
-                        segm_ids[p].index
-                        for p in [
-                            segm[loc] for loc, deg in enumerate(degrees) if deg == 1
-                        ]
-                    ]
-                ]
-            ),
-            target=ax,
-            **visual_style,
-        )
-        visual_style["vertex_size"] = 10
-        visual_style["vertex_color"] = "red"
-        ig.plot(
-            graph.subgraph(graph.vs[[segm_ids[p].index for p in segm]]),
-            target=ax,
-            **visual_style,
-        )
-        visual_style["vertex_size"] = 1
-        visual_style["vertex_color"] = "green"
-        ig.plot(graph, target=ax, **visual_style)
-        ax.invert_yaxis()
-        plt.show()
+    if len(endpoints) != 2:
+        point_list = loop_segment(segm_subg, segm, segm_ids)
+        # fig, ax = plt.subplots()
+        # visual_style = {}
+        # visual_style["vertex_size"] = 20
+        # visual_style["vertex_color"] = "green"
+        # ig.plot(
+        #     graph.subgraph(
+        #         graph.vs[
+        #             [
+        #                 segm_ids[p].index
+        #                 for p in [
+        #                     segm[loc] for loc, deg in enumerate(degrees) if deg != 0
+        #                 ]
+        #             ]
+        #         ]
+        #     ),
+        #     target=ax,
+        #     **visual_style,
+        # )
+        # visual_style["vertex_size"] = 10
+        # visual_style["vertex_color"] = "red"
+        # ig.plot(
+        #     graph.subgraph(graph.vs[[segm_ids[p].index for p in segm]]),
+        #     target=ax,
+        #     **visual_style,
+        # )
+        # visual_style["vertex_size"] = 1
+        # visual_style["vertex_color"] = "green"
+        # ig.plot(graph, target=ax, **visual_style)
+        # ax.invert_yaxis()
+        # plt.show()
 
     # Data exploration
     # cnt = 0
@@ -206,6 +205,44 @@ def get_large_seg_path(graph, segm, segm_ids):
     # return cnt, cnt1
 
     return point_list
+
+
+def loop_segment(segm_subg, segm, segm_ids):
+    try:
+        loop = []
+        # Choose a random first point
+        first_vertex = segm[0]
+        loop.append(first_vertex)
+        previous = first_vertex
+
+        # Loop through the points until we find the first point
+        looped = False
+        i = 0
+        size = len(segm)
+        # Start with a random point in the segment
+        while not looped:
+            if i > size:  # Safe guard
+                looped = True
+                break
+            # Get the neighbors of that point.
+            # If they don't match the 2nd to previous added, add to loop
+            nb = segm_subg.neighbors(loop[-1])
+            if nb[0] != previous and nb[0] != first_vertex:
+                loop.append(nb[0])
+            elif nb[1] != previous and nb[1] != first_vertex:
+                loop.append(nb[1])
+            else:
+                looped = True
+            previous = loop[-2]
+            i += 1
+
+        point_list = [segm_ids[p].index for p in loop]
+
+        return point_list
+    except Exception as error:
+        print(f"Looped Error, {error}")
+        # If odd case somewhere
+        return [segm_ids[p] for p in segm[0:2]]
 
 
 # Pythonic way to deal with indexing tuples later on
@@ -474,11 +511,13 @@ def find_new_vertex_neighbors(
             e_features.append(FeatureVars(*graph.es[e_id].attributes().values()))
 
     nbs_to_remove = []
+    fts_to_remove = []
     visited_nb_idxs = []
     for neighbor in neighbors:
         if neighbor in vertices_to_remove:
             nbs_to_remove.append(neighbor)
             nb_idxs = [i for i, nb in enumerate(neighbors) if nb == neighbor]
+            fts_to_remove.extend(nb_idxs)
             nodes_to_keep_track.append(neighbor)
             # Ensure no duplicate edge features are added
             for nb_idx in nb_idxs:
@@ -489,7 +528,8 @@ def find_new_vertex_neighbors(
 
     neighbors = [nb for nb in neighbors if nb not in nbs_to_remove]
     test_ft = e_features
-    e_features = [ft for ft in e_features if ft not in between_clique_e_features]
+    # e_features = [ft for ft in e_features if ft not in between_clique_e_features]
+    e_features = [ft for idx, ft in enumerate(e_features) if idx not in fts_to_remove]
 
     # print("At new vertex:")
     # print(neighbors, test_ft, num_of_all_nbs, between_clique_e_features, sep="\n")
@@ -801,6 +841,8 @@ def simplify_more_sclass1(
     for _ in range(iters):
         subg_segments, cliques = get_cliques(graph, l_bound=3, u_bound=5)
         if len(cliques) == 0:
+            # Delete the id attribute since its not useful anymore
+            del graph.vs["id"]
             break
         simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
@@ -822,6 +864,8 @@ def simplify_more_sclass2(
             graph, l_bound=2, u_bound=3, bifurcation_cliques=False
         )
         if len(cliques) == 0:
+            # Delete the id attribute since its not useful anymore
+            del graph.vs["id"]
             break
         simplify_more(graph, subg_segments, cliques, vis, verbose=True)
 
