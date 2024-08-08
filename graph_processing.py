@@ -146,7 +146,7 @@ def concat_extracted_features(graph, feat_map, inplace=True):
         return new_graph
 
 
-def concat_extracted_features_v2(graph, feat_map, inplace=True):
+def concat_extracted_features_v2(graph, feat_map, nb_size=48, inplace=True):
     # The difference of version 2 is that instead of getting the features from a specific pixel
     # We will calculate each feature with respect to the neighborhood of that pixel (mean,maxpool,sum)
 
@@ -154,7 +154,7 @@ def concat_extracted_features_v2(graph, feat_map, inplace=True):
     # The array has a shape of NxD where D is the feature dimention (64) and N is the number of nodes
     feat_attributes = np.zeros((len(graph.vs), feat_map.shape[0]))
     # print(feat_attributes.shape)
-    neighb_size = 48  # 8, 24 or 48
+    neighb_size = nb_size  # 8, 24 or 48, 81
     calc_features = np.zeros(feat_map.shape[0])
 
     # Loop through the vertices in the graph and populate the feature attributes
@@ -242,6 +242,13 @@ def candidate_neighbors(pt, hood_size=8):
         pt_list = []
         for i in range(-3, 4):
             for j in range(-3, 4):
+                pt_list.append((pt[0] + i, pt[1] + j))
+        pt_list.remove((pt[0], pt[1]))
+        return pt_list
+    elif hood_size == 81:
+        pt_list = []
+        for i in range(-4, 5):
+            for j in range(-4, 5):
                 pt_list.append((pt[0] + i, pt[1] + j))
         pt_list.remove((pt[0], pt[1]))
         return pt_list
@@ -428,10 +435,10 @@ def segment_filter(graph, f_length=2, smoothing=True):
         # Examine isolated segments that have only 2 endpoints
         if degrees.count(1) == 2:
             iso_segment_length = GFeatExt.get_seg_length(graph, segm, smoothing)
-        # If the isolated segment length is smaller than the filter length remove nodes
-        if iso_segment_length < f_length:
-            vertices_to_remove.extend(segm)
-            n_of_filtered += len(segm)
+            # If the isolated segment length is smaller than the filter length remove nodes
+            if iso_segment_length < f_length:
+                vertices_to_remove.extend(segm)
+                n_of_filtered += len(segm)
 
     graph.delete_vertices(vertices_to_remove)
 
@@ -604,7 +611,7 @@ def main():
     # IMG_SEQ_DIR_PATH = (
     #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
     # )
-    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002/0"
+    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0038/0"
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
     if not segm_images:
@@ -617,27 +624,27 @@ def main():
     )
 
     # Create graph
-    gr = create_graph(
-        skeletons[img_ind],
-        skeleton_points,
-        distance_transform[img_ind],
-        g_name="gr",
-        vis=True,
-        verbose=True,
-    )
-    # skeleton_points = find_centerlines(skeletons[img_ind + 1])
-    # gr1 = create_graph(
-    #     skeletons[img_ind + 1],
+    # gr = create_graph(
+    #     skeletons[img_ind],
     #     skeleton_points,
-    #     distance_transform[img_ind + 1],
-    #     g_name="gr1",
-    #     vis=False,
+    #     distance_transform[img_ind],
+    #     g_name="gr",
+    #     vis=True,
     #     verbose=True,
     # )
-    print("G1")
-    ig.summary(gr)
-    # print("G2")
-    # ig.summary(gr1)
+    skeleton_points = find_centerlines(skeletons[img_ind + 1])
+    gr1 = create_graph(
+        skeletons[img_ind + 1],
+        skeleton_points,
+        distance_transform[img_ind + 1],
+        g_name="gr1",
+        vis=False,
+        verbose=True,
+    )
+    # print("G1")
+    # ig.summary(gr)
+    print("G2")
+    ig.summary(gr1)
 
     # Test to see what the linegraph looks like
     # Keep in mind that when converting the attributes are discarded
