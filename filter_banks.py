@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal
 from skimage.transform import resize
 from scipy.ndimage import convolve
 
@@ -118,13 +119,33 @@ def makeLMfilters():
 def create_ft_map(filter_banks, img, img_shape=(512, 512)):
     img = resize(img, (img_shape[0], img_shape[1]))
 
+    # img = fft(img)
+
     filtered_imgs = np.zeros([filter_banks.shape[2], img.shape[0], img.shape[1]])
 
     for i in range(filter_banks.shape[2]):
-        # for i, filter in enumerate(LM_filter_banks[:, :]):
-        filtered_imgs[i, :, :] = convolve(img, filter_banks[:, :, i])
+        # filtered_imgs[i, :, :] = convolve(img, filter_banks[:, :, i]) # Very slow.
+        # filtered_imgs[i, :, :] = ifft(
+        #     img
+        #     * fft(
+        #         np.pad(
+        #             filter_banks[:, :, i], ((231, 232), (232, 231)), constant_values=0
+        #         )
+        #     )
+        # ) # Suffers from circular convolution problem.
+        filtered_imgs[i, :, :] = scipy.signal.fftconvolve(
+            img, filter_banks[:, :, i], mode="same"
+        )
 
     return filtered_imgs
+
+
+def fft(f):
+    return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(f)))
+
+
+def ifft(f):
+    return np.real(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(f))))
 
 
 def visualize_filter_bank(filter_bank):
