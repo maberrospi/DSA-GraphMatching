@@ -165,7 +165,7 @@ def main(load_segs=False):
     )
 
     pat_id = "R0002"
-    pat_ori = "1"
+    pat_ori = "0"
     IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
     images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
@@ -249,7 +249,7 @@ def main(load_segs=False):
     segm_pre_post = []
     for segm in segm_images1:
         if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-            if Path(segm).stem.rsplit("_")[1] == "pre":
+            if Path(segm).stem.rsplit("_", 2)[1] == "pre":
                 pre = True
                 segm_pre_post.insert(0, sift.load_img(segm))
             else:
