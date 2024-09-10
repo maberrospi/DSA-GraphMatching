@@ -131,6 +131,9 @@ class Visualize:
             },
             transform=self.ax.transAxes,
         )
+        # for a in self.ax:
+        self.ax.axis("off")
+        # self.fig.tight_layout()
         self.vis_img(1)
 
     def vis_img(self, idx):
@@ -218,15 +221,20 @@ class VisualizeSkeletons:
             segm = cv2.imread(self.segms[idx - 1], cv2.IMREAD_GRAYSCALE)
         else:
             segm = self.segms[idx - 1]
+        segm_w_skeleton = np.where(skeleton == 1, 0.5, segm)
+        segm_w_skeleton = np.dstack([segm_w_skeleton, segm_w_skeleton, segm_w_skeleton])
+        segm_w_skeleton = np.where(
+            segm_w_skeleton == [0.5, 0.5, 0.5], [1, 0, 0], segm_w_skeleton
+        )
+        segm_w_skeleton *= 255
         if self.first_pass:
             self.cur_img = self.ax[0].imshow(skeleton, cmap="gray")
-            self.cur_overl = self.ax[1].imshow(segm, cmap="gray")
-            self.testimg = self.ax[1].imshow(skeleton, cmap="Purples", alpha=0.5)
+            self.cur_overl = self.ax[1].imshow(segm_w_skeleton)
+            # self.testimg = self.ax[1].imshow(skeleton, cmap="Purples", alpha=0.5)
         else:
             self.cur_img.set(data=skeleton)
-            self.cur_overl.set(data=segm)
-            self.testimg.set(data=skeleton, alpha=0.5)
-        # skel_col = colors.ListedColormap(["white", "red"])  # Not used after all.
+            self.cur_overl.set(data=segm_w_skeleton)
+            # self.testimg.set(data=skeleton, alpha=0.5)
         self.text.set_text(self.ind)
         self.fig.canvas.draw_idle()
         # plt.draw()
@@ -264,7 +272,8 @@ def main():
     # )
 
     # V2
-    IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
+    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0002"
+    IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Outputs/test"
     IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002"
 
     segm_images = load_images(IMG_MIN_DIR_PATH)

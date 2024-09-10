@@ -162,6 +162,9 @@ def apply_transformation(transform, preEVT, postEVT, ret=False, vis=False):
         axs[0].set_title("Pre-EVT")
         axs[1].set_title("Post-EVT")
         axs[2].set_title("Transformed Post-EVT")
+        for a in axs:
+            a.set_xticks([])
+            a.set_yticks([])
 
     # Warped image to grayscale
     if preEVT.ndim == 3:
@@ -180,6 +183,9 @@ def apply_transformation(transform, preEVT, postEVT, ret=False, vis=False):
         axs[0].set_title("Overlayed Transform")
         axs[1].set_title("Pre-EVT")
         axs[2].set_title("Transformed Post-EVT")
+        for a in axs:
+            a.set_xticks([])
+            a.set_yticks([])
 
     if ret:
         return warped_image
@@ -436,7 +442,7 @@ def main():
     # postEVT = cv2.cvtColor(postEVT, cv2.COLOR_BGR2GRAY)
     # prepare_data()
     # IMG_DIR_PATH = "Minipv2/R0030/0"
-    IMG_DIR_PATH = "Niftisv2/R0040/0"
+    IMG_DIR_PATH = "Niftisv2/R0002/1"
     images_path = load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:
