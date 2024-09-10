@@ -325,6 +325,17 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
         #     overlay_seg=True,
         # )
 
+        # Create a shallow copy of both graphs
+        # Then remove the radius since we only need these for visualization.
+        # This is basically used for intermediate matching plots.
+        # We don't actually have intermediate results here but we could so we comment it out.
+        # vis_pre_graph = cur_pre_graph.copy()
+        # vis_post_graph = cur_post_graph.copy()
+        # del vis_pre_graph.vs["radius"]
+        # del vis_pre_graph.vs["coords"]
+        # del vis_post_graph.vs["radius"]
+        # del vis_post_graph.vs["coords"]
+
         # Test averaging the neighborhood (3x3) or (5x5) or (7x7) or (9x9) values for the features
         # Pre-EVT graph
         GProc.concat_extracted_features_v2(cur_pre_graph, pre_feat_map, inplace=True)
@@ -364,10 +375,13 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
         #     y / skeleton_images[1].shape[0] for y in cur_post_graph.vs["y"]
         # ]
 
-        # Delete the node radius info since I think it is misleading
+        # Delete the node radius and coordinate info (Optional)
         del cur_pre_graph.vs["radius"]
         del cur_post_graph.vs["radius"]
-        # For now coordinates cannot be deleted since they are used for plotting.
+        # del cur_pre_graph.vs["x"]
+        # del cur_pre_graph.vs["y"]
+        # del cur_post_graph.vs["y"]
+        # del cur_post_graph.vs["x"]
 
         # 7. Calculate graph node feature matrices and perform matching
 
@@ -626,6 +640,16 @@ def patch_match(
             #     overlay_seg=True,
             # )
 
+            # Create a shallow copy of both graphs
+            # Then remove the radius since we only need these for visualization.
+            # This is basically used for intermediate matching plots.
+            vis_pre_graph = cur_pre_graph.copy()
+            vis_post_graph = cur_post_graph.copy()
+            del vis_pre_graph.vs["radius"]
+            del vis_pre_graph.vs["coords"]
+            del vis_post_graph.vs["radius"]
+            del vis_post_graph.vs["coords"]
+
             # Test averaging the neighborhood (3x3) or (5x5) or (7x7) or (9x9) values for the features
             # Pre-EVT graph
             GProc.concat_extracted_features_v2(
@@ -670,9 +694,13 @@ def patch_match(
             #     y / skeleton_images[1].shape[0] for y in cur_post_graph.vs["y"]
             # ]
 
-            # Delete the node radius info since I think it is misleading
+            # Delete the node radius and coordinate info (Optional)
             del cur_pre_graph.vs["radius"]
             del cur_post_graph.vs["radius"]
+            del cur_pre_graph.vs["x"]
+            del cur_pre_graph.vs["y"]
+            del cur_post_graph.vs["y"]
+            del cur_post_graph.vs["x"]
 
             # 7. Calculate graph node feature matrices and perform matching
 
@@ -810,25 +838,10 @@ def patch_match(
                 transposed=transposed,
             )
 
-            # This should  happen only if they have been normalized.
-            # Reverse normalization of x,y for plotting
-            cur_pre_graph.vs["x"] = [
-                x * skeleton_images[0].shape[1] for x in cur_pre_graph.vs["x"]
-            ]
-            cur_pre_graph.vs["y"] = [
-                y * skeleton_images[0].shape[0] for y in cur_pre_graph.vs["y"]
-            ]
-            cur_post_graph.vs["x"] = [
-                x * skeleton_images[1].shape[1] for x in cur_post_graph.vs["x"]
-            ]
-            cur_post_graph.vs["y"] = [
-                y * skeleton_images[1].shape[0] for y in cur_post_graph.vs["y"]
-            ]
-
             # Plot intermediate patch results (Optional)
             # GMatch.multiscale_draw_matches_interactive(
-            #     cur_pre_graph,
-            #     cur_post_graph,
+            #     vis_pre_graph,
+            #     vis_post_graph,
             #     pre_post_evt[0],
             #     pre_post_evt[1],
             #     tmp_lines_kpts["kpts1"],
