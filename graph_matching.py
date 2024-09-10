@@ -122,12 +122,14 @@ def calc_feat_matrix_info(feat_matrix, vis=False):
     return f_avg, f_max, f_min, f_std
 
 
-def calc_graph_radius_info(graph):
+def calc_graph_radius_info(graph, verbose=True):
     radii = graph.vs["radius"]
     r_avg = np.mean(radii)
     r_min = np.min(radii)
     r_max = np.max(radii)
     r_std = np.std(radii)
+    if verbose:
+        print(f"R-Avg: {r_avg} - R-Max: {r_max} - R-Min: {r_min} - R-Std: {r_std}")
     # Plot histogram to see the distribution
     # counts, bins = np.histogram(radii)
     # plt.stairs(counts, bins)
@@ -201,7 +203,7 @@ def calc_affinity_matrix(pre_g, post_g):
     # Transform to sparse connectivity matrix for pygm
     A1, ew1 = pygm.utils.dense_to_sparse(A1)  # Don't need the edge weight tensor
     A2, ew2 = pygm.utils.dense_to_sparse(A2)
-    print(A1.shape, A2.shape)
+    # print(A1.shape, A2.shape)
     # print(ew1.shape)
     # Change data types to conserve memory
     pre_feat_matrix = pre_feat_matrix.astype("float16")
@@ -215,20 +217,25 @@ def calc_affinity_matrix(pre_g, post_g):
     K = pygm.utils.build_aff_mat(
         pre_feat_matrix, pre_e_feat_matrix, A1, post_feat_matrix, post_e_feat_matrix, A2
     )
+
+    # Normalize affinity matrix
+    k_min = K.min()  # np.min(K)
+    k_max = K.max()  # np.max(K)
+    K = (K - k_min) / (k_max - k_min)
     # K = pygm.utils.build_aff_mat(pre_feat_matrix, ew1, A1, post_feat_matrix, ew2, A2)
 
     return K
 
 
 def spectral_matcher(aff_mat, n1, n2):
-    print(aff_mat.shape)
-    plt.imshow(aff_mat)
-    plt.colorbar()
-    plt.show()
+    # print(aff_mat.shape)
+    # plt.imshow(aff_mat)
+    # plt.colorbar()
+    # plt.show()
     # Note that S is a normalized with a squared sum of 1
     S = pygm.sm(aff_mat, n1=n1, n2=n2)
     # Since we need a doubly-stochastic matrix we must use Sinkhorn
-    S = calc_assignment_matrix(S, tau=10, iter=250)
+    S = calc_assignment_matrix(S, tau=10, iter=250, method="hungarian")
 
     return S
 
@@ -715,25 +722,7 @@ def multiscale_draw_matches_interactive(
     lines,
     segm=False,
 ) -> None:
-    visual_style = {}
-    visual_style["vertex_size"] = 5
-    # visual_style["vertex_color"] = "green"
 
-    # Plot the pre and post EVT graphs in the same axes
-    fig, ax = plt.subplots(figsize=(12, 6))
-    # plot the first graph on the axis
-    # The x,y values are normalized on subgraphs now so we don't need to multiply the layout
-    # Which was required in the one-scale approach.
-    layout1 = [(v["x"], v["y"]) for v in pre_g.vs]
-    ig.plot(pre_g, layout=layout1, target=ax, **visual_style)
-    # Adjust the positions of the nodes in the second graph by adding an x offset
-    layout2 = [(v["x"] + pre_evt.shape[1], v["y"]) for v in post_g.vs]
-    # plot the second graph with the modified layout
-    ig.plot(post_g, layout=layout2, target=ax, **visual_style)
-    ax.set_title("Matches")
-    ax.invert_yaxis()
-
-    fig.subplots_adjust(bottom=0.25)
     if segm:
         # Prepare the segmentation images
         # Multiply by 255 because it is a binary image
@@ -747,6 +736,26 @@ def multiscale_draw_matches_interactive(
         post_img = ski.util.img_as_ubyte(post_img)
         pre_img = cv2.cvtColor(pre_img, cv2.COLOR_GRAY2RGB)
         post_img = cv2.cvtColor(post_img, cv2.COLOR_GRAY2RGB)
+
+    visual_style = {}
+    visual_style["vertex_size"] = 5
+    # visual_style["vertex_color"] = "green"
+
+    # Plot the pre and post EVT graphs in the same axes
+    fig, ax = plt.subplots(figsize=(12, 6))
+    # plot the first graph on the axis
+    # The x,y values are normalized on subgraphs now so we don't need to multiply the layout
+    # Which was required in the one-scale approach.
+    layout1 = [(v["x"], v["y"]) for v in pre_g.vs]
+    ig.plot(pre_g, layout=layout1, target=ax, **visual_style)
+    # Adjust the positions of the nodes in the second graph by adding an x offset
+    layout2 = [(v["x"] + pre_img.shape[1], v["y"]) for v in post_g.vs]
+    # plot the second graph with the modified layout
+    ig.plot(post_g, layout=layout2, target=ax, **visual_style)
+    ax.set_title("Matches")
+    ax.invert_yaxis()
+
+    fig.subplots_adjust(bottom=0.25)
 
     # Stitch the images
     # Create a new output image that concatenates the two images side by side
@@ -863,9 +872,6 @@ def draw_matches_animated(
     for i, j in zip(pre_graph_node_idx, matches):
         # Create cv2 DMatch object
         matches_list.append(cv2.DMatch(i, j, distance))
-
-    # # Test masking based on Euclidean distance
-    # feat_dist = distance.cdist(t1, t2, "euclidean")
 
     interval = 30
     frames_list = [*range(0 + interval, len(matches_list), interval)]
