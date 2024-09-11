@@ -263,6 +263,60 @@ def save_feature_maps(
     logging.info("Done!")
 
 
+def load_and_preprocess_dicom(dcm_path):
+    ds = dcmread(dcm_path, defer_size="1 KB", stop_before_pixels=False, force=True)
+    # This function is not used in this file
+    if "FrameTimeVector" in ds:
+        if ds.FrameTimeVector is None:
+            logger.warning(
+                "Missing time info in Frame Time Vector of type ({}) and Number of frames ({}) -> Skipping patient."
+                "".format(
+                    ds.FrameTimeVector,
+                    ds.NumberOfFrames,
+                )
+            )
+
+        if len(ds.FrameTimeVector) != ds.NumberOfFrames:
+            logger.warning(
+                "Number of Frames ({}) does not match frame time vector length ({}): {}"
+                "".format(
+                    ds.NumberOfFrames,
+                    len(ds.FrameTimeVector),
+                    ds.FrameTimeVector,
+                )
+            )
+            ds.FrameTimeVector = ds.FrameTimeVector[: ds.NumberOfFrames]
+        cum_time_vector = np.cumsum(ds.FrameTimeVector)
+    elif "FrameTime" in ds:
+        cum_time_vector = int(ds.FrameTime) * np.array(range(ds.NumberOfFrames))
+    else:
+        logger.error("Missing time info: {}".format(dcm_path))
+        raise "Patient is missing time info: {}.".format(dcm_path)
+    non_duplicated_frame_indices = np.where(~pd.DataFrame(cum_time_vector).duplicated())
+    cum_time_vector = cum_time_vector[non_duplicated_frame_indices]
+    seq = ds.pixel_array[non_duplicated_frame_indices]
+    # remove the first frame as it is most likely a non-contrast frame or an un-subtracted frame
+    cum_time_vector, seq = cum_time_vector[1:], seq[1:]
+
+    MAX_LEN = 20  # Shorten unnecessarily long sequences.
+    if seq.shape[0] > MAX_LEN:
+        logger.warning(
+            "Sequence is unnecessarily long, "
+            "cutting it to {} frames based on minimum contrast.".format(MAX_LEN)
+        )
+    seq = cut_seq(seq, max_len=MAX_LEN)
+
+    seq = normalize(seq)
+    # seq = seq.transpose((2, 1, 0))
+    logger.info("Creating MinIP file.")
+
+    # seq = seq.transpose((2, 1, 0))
+
+    # Return MinIP image
+    return np.min(seq, axis=0)
+    # img_minip = normalize(img_minip)  # I have a feeling this is wrong
+
+
 def main():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
