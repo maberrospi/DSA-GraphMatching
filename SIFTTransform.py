@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import nibabel as nib
-from prepareData import prepare_data
+from prepareData import prepare_data, load_and_preprocess_dicom
 
 # Inspiration: https://www.sicara.fr/blog-technique/2019-07-16-image-registration-deep-learning
 #              https://docs.opencv.org/4.x/da/df5/tutorial_py_sift_intro.html
@@ -263,9 +263,7 @@ def load_img_dir(img_dir_path, img_type="minip"):
     if img_type == "minip":
         images = sorted(glob.glob(os.path.join(img_dir_path, "*.png"), recursive=False))
     elif img_type == "dicom":
-        # THIS NEEDS TO BE MODIFIED
         images = sorted(glob.glob(os.path.join(img_dir_path, "*.dcm"), recursive=False))
-        images = None
     else:
         images = sorted(glob.glob(os.path.join(img_dir_path, "*.nii"), recursive=False))
     return images
@@ -279,8 +277,7 @@ def load_img(img_path):
         img = img.astype(np.uint8)
         img = np.min(img, axis=0)
     elif ".dcm" in img_path:
-        # THIS NEEDS TO BE MODIFIED
-        img = None
+        img = load_and_preprocess_dicom(img_path)
     else:
         img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
 
