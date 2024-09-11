@@ -322,11 +322,11 @@ def run_eval(json_files, pixel_wise, load_segs=True):
                 IMG_SEQ_DIR_PATH = segm_output_folder
 
             # segm_images = load_images(IMG_MIN_DIR_PATH)
-            segm_images1 = sklt.load_images(IMG_SEQ_DIR_PATH)
+            segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
 
             # Find corresponding pre and post images from the segmentations and feat maps
             segm_pre_post = []
-            for segm in segm_images1:
+            for segm in segm_images:
                 if Path(segm).stem.rsplit("_", 1)[1] == "artery":
                     if Path(segm).stem.rsplit("_", 2)[1] == "pre":
                         pre = True
@@ -683,7 +683,15 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     plt.show()
 
 
-def main(load_segs=False, pixel_wise=False, eval=False):
+def main(
+    in_img_path,
+    in_segm_path,
+    in_pre_path,
+    in_post_path,
+    load_segs=False,
+    pixel_wise=False,
+    eval=False,
+):
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
         os.mkdir("log")
@@ -702,16 +710,27 @@ def main(load_segs=False, pixel_wise=False, eval=False):
         evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
         return
 
-    pat_id = "R0002"
-    pat_ori = "1"
-    IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
-    images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
-    # Check if list is empty
-    if not images_path:
-        return
+    # pat_id = "R0002"
+    # pat_ori = "1"
+    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
+    if in_img_path != None:
+        IMG_DIR_PATH = in_img_path
+        pat_ori = str(Path(IMG_DIR_PATH).stem)
+        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
+        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
+        # Check if list is empty
+        if not images_path:
+            return
 
-    # Load images from paths
-    images = sift.load_pre_post_imgs(images_path)
+        # Load images from paths
+        images = sift.load_pre_post_imgs(images_path)
+
+    elif in_pre_path and in_post_path != None:
+        images = []
+        images.append(sift.load_img(in_pre_path))
+        images.append(sift.load_img(in_post_path))
+    else:
+        raise "One of two possible inputs must be provided."
 
     OrigpreEVT = images[0]
     OrigpostEVT = images[1]
@@ -735,14 +754,15 @@ def main(load_segs=False, pixel_wise=False, eval=False):
 
     # 2. Segmentation
 
-    if load_segs:
+    if load_segs and in_img_path != None:
         # If True we assume that the feature maps will also be loaded
         IMG_MIN_DIR_PATH = (
             "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
         )
-        IMG_SEQ_DIR_PATH = (
-            "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
-        )
+        # IMG_SEQ_DIR_PATH = (
+        #     "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
+        # )
+        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
     else:
         # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
         segm_output_folder = "Outputs/test"
@@ -760,36 +780,70 @@ def main(load_segs=False, pixel_wise=False, eval=False):
         # Doesn't work with mrclean dir structure yet.
         # Need to change this to make sure pre and post are not reversed
         # Feature maps not needed for the sift-baseline method. This still saves segmentations.
-        feat_map_pre_post = predict.run_predict(
-            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-            in_img_path=IMG_DIR_PATH,
-            out_img_path=segm_output_folder,
-            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-            input_type="sequence",
-            input_format="nifti",
-            label_type="av",
-            amp=True,
+        # feat_map_pre_post = predict.run_predict(
+        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+        #     in_img_path=IMG_DIR_PATH,
+        #     out_img_path=segm_output_folder,
+        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+        #     input_type="sequence",
+        #     input_format="nifti",
+        #     label_type="av",
+        #     amp=True,
+        # )
+        # On the fly segmentation now only works if you provide pre-post inputs.
+        # Otherwise there is no way to know which is pre and post using a directory as input
+        feat_map_pre_post = []
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_pre_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format="nifti",
+                label_type="av",
+                amp=True,
+            )
+        )
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_post_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format="nifti",
+                label_type="av",
+                amp=True,
+            )
         )
 
-        # Plot the feature maps of one seq for reference
-        predict.display_feature_maps(feat_map_pre_post)
+        # Plot the feature maps of one seq for reference (Optional)
+        # predict.display_feature_maps(feat_map_pre_post)
         # The list contains two maps, where pre-post are first-second
         # The maps have a torch tensor format
         IMG_SEQ_DIR_PATH = segm_output_folder
 
     # segm_images = load_images(IMG_MIN_DIR_PATH)
-    segm_images1 = sklt.load_images(IMG_SEQ_DIR_PATH)
+    segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
 
     # Find corresponding pre and post images from the segmentations and feat maps
     segm_pre_post = []
-    for segm in segm_images1:
-        if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-            if Path(segm).stem.rsplit("_", 2)[1] == "pre":
-                pre = True
-                segm_pre_post.insert(0, sift.load_img(segm))
-            else:
-                pre = False
-                segm_pre_post.append(sift.load_img(segm))
+    # If data was prepared we check for this
+    if in_img_path != None:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
+                    segm_pre_post.insert(0, sift.load_img(segm))
+                else:
+                    segm_pre_post.append(sift.load_img(segm))
+    else:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
+                    segm_pre_post.insert(0, sift.load_img(segm))
+                else:
+                    segm_pre_post.append(sift.load_img(segm))
 
     # Check if the transformation quality is better than the original
     if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
@@ -1000,7 +1054,11 @@ def main(load_segs=False, pixel_wise=False, eval=False):
 # fmt: off
 def get_args():
     parser = argparse.ArgumentParser(description="Find correspondeces using SIFT on a set of pre/post-EVT DSA images")
-    parser.add_argument("--load-segs",action="store_true",default=True,help="Load the segmentations.")
+    parser.add_argument('--in_img_path','-i',default=None, help='Directory of pre-post DSA sequences if data was prepared.')
+    parser.add_argument('--in_segm_path','-is',default=None, help='Directory of pre-post DSA segmentations if data was prepared.')
+    parser.add_argument('--in_pre_path','-pre',default=None, help='Path of pre-DSA sequence.')
+    parser.add_argument('--in_post_path','-post',default=None, help='Path of post-DSA sequence.')
+    parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations.")
     parser.add_argument("--pixel-wise",action="store_true",default=False,help="Use the pixel wise method for matching.")
     parser.add_argument("--eval",action="store_true",default=False,help="Evaluate the method.")
 #fmt:on
