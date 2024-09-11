@@ -230,8 +230,8 @@ def calc_ft_map_sim(feat_map):
 def run_predict(
     in_img_path,
     out_img_path,
-    ft_out_img_path,
     model,
+    ft_out_img_path="FeatMap",
     input_type="minip",
     input_format="dicom",
     label_type="vessel",
@@ -291,13 +291,21 @@ def run_predict(
     # summary(model=net, input_size=(1, 20, 1, 512, 512))  # B,T,C,H,W
 
     """Segmentation"""
-    # test_img = load_image(in_img_path, img_size, img_type=input_type)
-    # predict(net, test_img, out_img_path, device=device)
 
-    if input_format == "nifti":
-        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True))
-    elif input_format == "dicom":
-        dcm_fps = sorted(glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True))
+    if Path(in_img_path).is_file():
+        dcm_fps = []
+        dcm_fps.append(in_img_path)
+        in_img_path = Path(in_img_path).parent.as_posix()
+        # predict(net, test_img, out_img_path, device=device)
+    else:
+        if input_format == "nifti":
+            dcm_fps = sorted(
+                glob(os.path.join(in_img_path, "**", "*.nii"), recursive=True)
+            )
+        elif input_format == "dicom":
+            dcm_fps = sorted(
+                glob(os.path.join(in_img_path, "**", "*.dcm"), recursive=True)
+            )
     # df_patients = pd.read_csv("/mnt/data2/Dropbox/Ruisheng/PhD/MyManuscripts/CTA-DSA mapping/dsa_removal_annotation_Sijie.csv")
     # df_patients = df_patients[df_patients['operation'].isna()]
     # df_patients = df_patients[df_patients['operation'] == "temp"]
@@ -374,7 +382,10 @@ def run_predict(
     )
     logging.info("Done!")
 
-    return up4_list
+    if save_ft_maps:
+        return up4_list
+    else:
+        return None
 
 
 if __name__ == "__main__":
