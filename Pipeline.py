@@ -25,7 +25,16 @@ from Segmentation import predict
 # Inspiration: https://stackoverflow.com/questions/21019338/how-to-change-the-homography-with-the-scale-of-the-image/48915151#48915151
 
 
-def main(match_type="single", load_segs=True, load_ft_maps=True):
+def main(
+    in_img_path,
+    in_segm_path,
+    in_ftmap_path,
+    in_pre_path,
+    in_post_path,
+    input_format="nifti",
+    match_type="patched",
+    ftmap_type="lm",
+):
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
         os.mkdir("log")
@@ -51,16 +60,27 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
 
     # Read the images to be used by SIFT
     # Pat. 18 and 30 are early ICA blockages
-    pat_id = "R0002"
-    pat_ori = "0"
-    IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
-    images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
-    # Check if list is empty
-    if not images_path:
-        return
+    # pat_id = "R0002"
+    # pat_ori = "0"
+    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
+    if in_img_path != None:
+        IMG_DIR_PATH = in_img_path
+        pat_ori = str(Path(IMG_DIR_PATH).stem)
+        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
+        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
+        # Check if list is empty
+        if not images_path:
+            return
 
-    # Load images from paths
-    images = sift.load_pre_post_imgs(images_path)
+        # Load images from paths
+        images = sift.load_pre_post_imgs(images_path)
+
+    elif in_pre_path and in_post_path != None:
+        images = []
+        images.append(sift.load_img(in_pre_path))
+        images.append(sift.load_img(in_post_path))
+    else:
+        raise "One of two possible inputs must be provided."
 
     OrigpreEVT = images[0]
     OrigpostEVT = images[1]
@@ -84,14 +104,17 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
 
     # 2. Segmentation
 
-    if load_segs:
-        # If True we assume that the feature maps will also be loaded
-        IMG_SEQ_DIR_PATH = (
-            "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
-        )
-
-        FEAT_MAP_DIR_PATH = "FeatMapsv2/" + pat_id + "/" + pat_ori
+    if in_ftmap_path != None:
+        # FEAT_MAP_DIR_PATH = "FeatMapsv2/" + pat_id + "/" + pat_ori
+        FEAT_MAP_DIR_PATH = in_ftmap_path + "/" + pat_id + "/" + pat_ori
         feat_map_pre_post = []
+
+    if in_segm_path != None and in_img_path != None:
+        # If True we assume that the feature maps will also be loaded
+        # IMG_SEQ_DIR_PATH = (
+        #     "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
+        # )
+        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
 
     else:
         # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
@@ -108,15 +131,42 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
         # In our case the chosen layer is "up4" form the model
         # Doesn't work with mrclean dir structure yet.
         # Need to change this to make sure pre and post are not reversed
-        feat_map_pre_post = predict.run_predict(
-            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-            in_img_path=IMG_DIR_PATH,
-            out_img_path=segm_output_folder,
-            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-            input_type="sequence",
-            input_format="nifti",
-            label_type="av",
-            amp=True,
+        # feat_map_pre_post = predict.run_predict(
+        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+        #     in_img_path=IMG_DIR_PATH,
+        #     out_img_path=segm_output_folder,
+        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+        #     input_type="sequence",
+        #     input_format="nifti",
+        #     label_type="av",
+        #     amp=True,
+        # )
+        # On the fly segmentation now only works if you provide pre-post inputs.
+        # Otherwise there is no way to know which is pre and post using a directory as input
+        feat_map_pre_post = []
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_pre_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format=input_format,
+                label_type="av",
+                amp=True,
+            )
+        )
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_post_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format=input_format,
+                label_type="av",
+                amp=True,
+            )
         )
 
         # Plot the feature maps of one seq for reference (Optional)
@@ -130,28 +180,47 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
 
     # Find corresponding pre and post images from the segmentations and feat maps
     segm_pre_post = []
-    for segm in segm_images:
-        if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-            if Path(segm).stem.rsplit("_", 2)[1] == "pre":
-                pre = True
-                segm_pre_post.insert(0, sift.load_img(segm))
-            else:
-                pre = False
-                segm_pre_post.append(sift.load_img(segm))
-
-            if load_segs and load_ft_maps:
-                # The feature map dir has the same structure as the sequence dir
-                # and the same file name. So replace the .png extension with npz
-                # and read the appropriate feature maps
-                feature_maps_path = segm.replace(
-                    IMG_SEQ_DIR_PATH, FEAT_MAP_DIR_PATH
-                ).replace("_artery.png", ".npz")
-                # Load npz file
-                feature_maps = np.load(feature_maps_path)
-                if pre:
-                    feat_map_pre_post.insert(0, feature_maps["feat_maps"])
+    # If the data was prepared we do this
+    if in_img_path != None:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
+                    pre = True
+                    segm_pre_post.insert(0, sift.load_img(segm))
                 else:
-                    feat_map_pre_post.append(feature_maps["feat_maps"])
+                    pre = False
+                    segm_pre_post.append(sift.load_img(segm))
+
+                if in_ftmap_path != None:
+                    # If True we assume that the feature maps will also be loaded
+                    # The feature map dir has the same structure as the sequence dir
+                    # and the same file name. So replace the .png extension with npz
+                    # and read the appropriate feature maps
+                    feature_maps_path = segm.replace(
+                        IMG_SEQ_DIR_PATH, FEAT_MAP_DIR_PATH
+                    ).replace("_artery.png", ".npz")
+                    # Load npz file
+                    feature_maps = np.load(feature_maps_path)
+                    if pre:
+                        feat_map_pre_post.insert(0, feature_maps["feat_maps"])
+                    else:
+                        feat_map_pre_post.append(feature_maps["feat_maps"])
+    else:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
+                    pre = True
+                    segm_pre_post.insert(0, sift.load_img(segm))
+                else:
+                    pre = False
+                    segm_pre_post.append(sift.load_img(segm))
+
+                # If the ft maps are UNet ones
+                if ftmap_type == "unet":
+                    if pre:
+                        feat_map_pre_post.insert(0, feature_maps["feat_maps"])
+                    else:
+                        feat_map_pre_post.append(feature_maps["feat_maps"])
 
     # Check if the transformation quality is better than the original
     if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
@@ -170,7 +239,7 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
         final_segm_post = sift.apply_transformation(
             transformation, segm_pre_post[0], segm_pre_post[1], ret=True, vis=True
         )
-        if load_ft_maps:
+        if ftmap_type == "unet":
             # Warp the feature maps
             for i in range(feat_map_pre_post[1].shape[0]):
                 feat_map_pre_post[1][i, :, :] = sift.apply_transformation(
@@ -196,7 +265,7 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
     #     cv2.morphologyEx(segm, cv2.MORPH_OPEN, kernel) for segm in segm_pre_post
     # ]
 
-    if not load_ft_maps:
+    if ftmap_type == "lm":
         # Use Leung-Malik features
         LM_filter_banks = FilterBanks.makeLMfilters()
         pre_feat_map = FilterBanks.create_ft_map(LM_filter_banks, preEVT)
@@ -211,9 +280,7 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
 
     # Run the fully patched version
     if match_type == "patched":
-        patch_match(
-            segm_pre_post, feat_map_pre_post, load_ft_maps, [preEVT, tr_postEVT]
-        )
+        patch_match(segm_pre_post, feat_map_pre_post, ftmap_type, [preEVT, tr_postEVT])
         return
 
     if match_type == "rand_patch":
@@ -389,7 +456,7 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
         pre_feat_matrix = GMatch.create_feat_matrix(cur_pre_graph)
         post_feat_matrix = GMatch.create_feat_matrix(cur_post_graph)
 
-        if load_ft_maps:
+        if ftmap_type == "unet":
             # Only instance based available since distribution parameters weren't calculated
             # The normalizations are optional
             pre_feat_matrix = Norms.instance_normalization(pre_feat_matrix)
@@ -509,7 +576,7 @@ def main(match_type="single", load_segs=True, load_ft_maps=True):
 def patch_match(
     pre_post_evt: list[np.ndarray],
     pre_post_feat_maps: list[np.ndarray],
-    load_ft_maps: bool,
+    ftmap_type: str,
     orig_pre_post_evt: list[np.ndarray] | None = None,
 ) -> None:
 
@@ -708,7 +775,7 @@ def patch_match(
             pre_feat_matrix = GMatch.create_feat_matrix(cur_pre_graph)
             post_feat_matrix = GMatch.create_feat_matrix(cur_post_graph)
 
-            if load_ft_maps:
+            if ftmap_type == "unet":
                 # Only instance based available since distribution parameters weren't calculated
                 # The normalizations are optional
                 pre_feat_matrix = Norms.instance_normalization(pre_feat_matrix)
@@ -899,11 +966,16 @@ def patch_match(
 
 # fmt: off
 def get_args():
-    parser = argparse.ArgumentParser(description="Perform graph matching on a set of pre/post-EVT DSA images")
-    # parser.add_argument('in_img_path', help='Input image to be segmented.')
-    parser.add_argument("--match-type", "-t", help="Type of match to perform - single | multi | patched")
-    parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations and feature maps.")
-    parser.add_argument("--load-ft-maps",action="store_true",default=False,help="Load the feature maps corresponding to the segmentations.")
+    parser = argparse.ArgumentParser(description="Find correspondences using graph matching on a set of pre/post-EVT DSA images")
+    parser.add_argument('--in_img_path','-i',default=None, help='Directory of pre-post DSA sequences if data was prepared.')
+    parser.add_argument('--in_segm_path','-is',default=None, help='Directory of pre-post DSA segmentations if data was prepared.')
+    parser.add_argument('--in_ftmap_path','-if',default=None, help='Directory of pre-post DSA UNet feature maps if data was prepared.')
+    parser.add_argument('--in_pre_path','-pre',default=None, help='Path of pre-DSA sequence.')
+    parser.add_argument('--in_post_path','-post',default=None, help='Path of post-DSA sequence.')
+    parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
+    parser.add_argument("--match-type", "-t",default='patched', help="Type of match to perform - single | multi | patched")
+    parser.add_argument("--ftmap_type","-fmt",default="lm",help="Type of feature maps to use - unet | lm")
+    # parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations and feature maps.")
 #fmt:on
 
     return parser.parse_args()
