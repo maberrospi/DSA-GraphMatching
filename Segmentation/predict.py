@@ -294,7 +294,7 @@ def run_predict(
 
     if Path(in_img_path).is_file():
         dcm_fps = []
-        dcm_fps.append(in_img_path)
+        dcm_fps.append(Path(in_img_path).as_posix())
         in_img_path = Path(in_img_path).parent.as_posix()
         # predict(net, test_img, out_img_path, device=device)
     else:
