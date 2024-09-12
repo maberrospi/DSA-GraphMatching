@@ -688,6 +688,7 @@ def main(
     in_segm_path,
     in_pre_path,
     in_post_path,
+    input_format="nifti",
     load_segs=False,
     pixel_wise=False,
     eval=False,
@@ -800,7 +801,7 @@ def main(
                 out_img_path=segm_output_folder,
                 model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
                 input_type="sequence",
-                input_format="nifti",
+                input_format=input_format,
                 label_type="av",
                 amp=True,
             )
@@ -812,7 +813,7 @@ def main(
                 out_img_path=segm_output_folder,
                 model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
                 input_type="sequence",
-                input_format="nifti",
+                input_format=input_format,
                 label_type="av",
                 amp=True,
             )
@@ -1058,6 +1059,7 @@ def get_args():
     parser.add_argument('--in_segm_path','-is',default=None, help='Directory of pre-post DSA segmentations if data was prepared.')
     parser.add_argument('--in_pre_path','-pre',default=None, help='Path of pre-DSA sequence.')
     parser.add_argument('--in_post_path','-post',default=None, help='Path of post-DSA sequence.')
+    parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
     parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations.")
     parser.add_argument("--pixel-wise",action="store_true",default=False,help="Use the pixel wise method for matching.")
     parser.add_argument("--eval",action="store_true",default=False,help="Evaluate the method.")
