@@ -1,11 +1,11 @@
 # Vessel correspondence in pre-post-intervention DSA images of ischemic stroke patients
 
-- [Quick Start](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#quick-start)
-- [Description](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#description)
-- [Usage](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#usage)
-  - [Data Preparation (Optional)](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#data-preparation)
-  - [RB-VM Method](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#run-rb-vm-method)
-  - [GB-VM Methods](https://github.com/maberrospi/DSA-GraphMatching/edit/main/README.md#run-gb-vm-methods).
+- [Quick Start](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#quick-start)
+- [Description](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#description)
+- [Usage](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#usage)
+  - [Data Preparation (Optional)](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#data-preparation)
+  - [RB-VM Method](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#run-rb-vm-method)
+  - [GB-VM Methods](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#run-gb-vm-methods).
 
 ## Quick Start
 ```
