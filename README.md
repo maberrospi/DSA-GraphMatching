@@ -74,19 +74,37 @@ options:
 
 ### Run RB-VM method
 ```
-usage: sift_baseline.py [-h] [--load-segs] [--pixel-wise] [--eval]
+usage: sift_baseline.py [-h] [--in_img_path IN_IMG_PATH] [--in_segm_path IN_SEGM_PATH] [--in_pre_path IN_PRE_PATH] [--in_post_path IN_POST_PATH] [--load-segs] [--pixel-wise] [--eval]
 
 Find correspondeces using SIFT on a set of pre/post-EVT DSA images
 
 options:
-  -h, --help    show this help message and exit
-  --load-segs   Load the segmentations.
-  --pixel-wise  Use the pixel wise method for matching.
-  --eval        Evaluate the method.
+  -h, --help            show this help message and exit
+  --in_img_path IN_IMG_PATH, -i IN_IMG_PATH
+                        Directory of pre-post DSA sequences if data was prepared.
+  --in_segm_path IN_SEGM_PATH, -is IN_SEGM_PATH
+                        Directory of pre-post DSA segmentations if data was prepared.
+  --in_pre_path IN_PRE_PATH, -pre IN_PRE_PATH
+                        Path of pre-DSA sequence.
+  --in_post_path IN_POST_PATH, -post IN_POST_PATH
+                        Path of post-DSA sequence.
+  --input-format INPUT_FORMAT, -f INPUT_FORMAT
+                        Input format - dicom or nifti
+  --load-segs           Load the segmentations.
+  --pixel-wise          Use the pixel wise method for matching.
+  --eval                Evaluate the method.
 
-example: python sift_baseline.py --pixel-wise --load-segs
+example 1 uses prepared data generated from Data Preparation
+example1: python sift_baseline.py -i Niftisv2/R0002/0 -is Segms/Sequence --pixel-wise --load-segs -f nifti
 This generates matching vessels  using the pixel wise method (reccommended)
-and loading segments if previously created.
+and loading Nifti files and segmentations created via Data Preparation
+
+example 2 uses pre- and post-EVT DSA series and calculates the segmentations on the fly.
+example 2: python sift_baseline.py -pre Niftis/pre_evt.nii -post Niftis/post_evt.nii  --pixel-wise -f nifti
+This generates matching vessels  using the pixel wise method (reccommended)
+and loading arbitrary Nifti files and creating segmentations on the fly.
+Equivalent dicom code: python sift_baseline.py -pre pre_evt.dcm -post post_evt.dcm --pixel-wise -f dicom
+
 ```
 
 ### Run GB-VM method
