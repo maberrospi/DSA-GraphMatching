@@ -103,20 +103,46 @@ example 2 uses pre- and post-EVT DSA series and calculates the segmentations on 
 example 2: python sift_baseline.py -pre Niftis/pre_evt.nii -post Niftis/post_evt.nii  --pixel-wise -f nifti
 This generates matching vessels  using the pixel wise method (reccommended)
 and loading arbitrary Nifti files and creating segmentations on the fly.
-Equivalent dicom code: python sift_baseline.py -pre Dicoms/pre_evt.dcm -post Dicoms/post_evt.dcm --pixel-wise -f dicom
+Equivalent dicom code:
+python sift_baseline.py -pre Dicoms/pre_evt.dcm -post Dicoms/post_evt.dcm --pixel-wise -f dicom
 
 ```
 
 ### Run GB-VM method
 ```
-usage: Pipeline.py [-h] [--match-type MATCH_TYPE] [--load-segs] [--load-ft-maps]
+usage: Pipeline.py [-h] [--in_img_path IN_IMG_PATH] [--in_segm_path IN_SEGM_PATH] [--in_ftmap_path IN_FTMAP_PATH] [--in_pre_path IN_PRE_PATH] [--in_post_path IN_POST_PATH] [--input-format INPUT_FORMAT]
+                   [--match-type MATCH_TYPE] [--ftmap_type FTMAP_TYPE]
 
 Find correspondences using graph matching on a set of pre/post-EVT DSA images
 
 options:
   -h, --help            show this help message and exit
+  --in_img_path IN_IMG_PATH, -i IN_IMG_PATH
+                        Directory of pre-post DSA sequences if data was prepared.
+  --in_segm_path IN_SEGM_PATH, -is IN_SEGM_PATH
+                        Directory of pre-post DSA segmentations if data was prepared.
+  --in_ftmap_path IN_FTMAP_PATH, -if IN_FTMAP_PATH
+                        Directory of pre-post DSA UNet feature maps if data was prepared.
+  --in_pre_path IN_PRE_PATH, -pre IN_PRE_PATH
+                        Path of pre-DSA sequence.
+  --in_post_path IN_POST_PATH, -post IN_POST_PATH
+                        Path of post-DSA sequence.
+  --input-format INPUT_FORMAT, -f INPUT_FORMAT
+                        Input format - dicom or nifti
   --match-type MATCH_TYPE, -t MATCH_TYPE
                         Type of match to perform - single | multi | patched
-  --load-segs           Load the segmentations and feature maps.
-  --load-ft-maps        Load the feature maps corresponding to the segmentations.
+  --ftmap_type FTMAP_TYPE, -fmt FTMAP_TYPE
+                        Type of feature maps to use - unet | lm
+
+example 1: use prepared data (Niftis, segmentations and UNet feature maps) to generate matches
+python Pipeline.py -i Niftisv2/R0002/0 -is Segms/Sequence -if FeatMapsv2 -t patched -fmt unet
+Alternative for using LM filter bank feature maps:
+python Pipeline.py -i Niftisv2/R0002/0 -is Segms/Sequence -t patched -fmt lm
+
+example 2: uses pre- and post-EVT DSA series and calculates the segmentations and Unet feature maps (if applicable) on the fly.
+python Pipeline.py -pre Niftis/pre_evt.nii -post Niftis/post_evt.nii -t patched -f nifti -fmt lm
+Equivalent dicom code:
+python Pipeline.py -pre Dicoms/pre_evt.dcm -post Dicoms/post_evt.dcm -t patched -f dicom -fmt lm
+These examples use LM feature maps and the 'patched' version of the methods.
+
 ```
