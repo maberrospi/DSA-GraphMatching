@@ -103,7 +103,7 @@ example 2 uses pre- and post-EVT DSA series and calculates the segmentations on 
 example 2: python sift_baseline.py -pre Niftis/pre_evt.nii -post Niftis/post_evt.nii  --pixel-wise -f nifti
 This generates matching vessels  using the pixel wise method (reccommended)
 and loading arbitrary Nifti files and creating segmentations on the fly.
-Equivalent dicom code: python sift_baseline.py -pre pre_evt.dcm -post post_evt.dcm --pixel-wise -f dicom
+Equivalent dicom code: python sift_baseline.py -pre Dicoms/pre_evt.dcm -post Dicoms/post_evt.dcm --pixel-wise -f dicom
 
 ```
 
