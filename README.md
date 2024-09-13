@@ -1,11 +1,11 @@
 # Vessel correspondence in pre-post-intervention DSA images of ischemic stroke patients
 
-- [Quick Start](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#quick-start)
-- [Description](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#description)
-- [Usage](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#usage)
-  - [Data Preparation (Optional)](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#data-preparation)
-  - [RB-VM Method](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#run-rb-vm-method)
-  - [GB-VM Methods](https://github.com/maberrospi/DSA-GraphMatching?tab=readme-ov-file#run-gb-vm-methods).
+- [Quick Start](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#quick-start)
+- [Description](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#description)
+- [Usage](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#usage)
+  - [Data Preparation (Optional)](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#data-preparation)
+  - [RB-VM Method](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#run-rb-vm-method)
+  - [GB-VM Methods](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#run-gb-vm-methods).
 
 ## Quick Start
 ```
