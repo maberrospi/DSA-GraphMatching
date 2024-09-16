@@ -3,6 +3,7 @@ from glob import glob
 import os
 import sys
 from pathlib import Path
+import argparse
 
 import cv2
 import numpy as np
@@ -317,7 +318,18 @@ def load_and_preprocess_dicom(dcm_path):
     # img_minip = normalize(img_minip)  # I have a feeling this is wrong
 
 
-def main():
+# fmt: off
+def get_args():
+    parser = argparse.ArgumentParser(description="Prepare data from MR CLEAN Registry.")
+    parser.add_argument('--dcm_dir_path','-i',default=None, help='Directory of MR CLEAN DSA sequences.')
+    parser.add_argument('--csv_path','-c',default=None, help='Path to MR CLEAN CSV file.')
+    parser.add_argument('--out_nifti_path','-on',default='Niftis', help='Output directory for Nifti files.')
+    parser.add_argument('--out_minip_path','-od',default='Minips', help='Output directory for MinIP files.')
+#fmt:on
+
+    return parser.parse_args()
+
+def main(dcm_dir_path,csv_path,out_nifti_path,out_minip_path):
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
         os.mkdir("log")
@@ -331,8 +343,11 @@ def main():
         ],
     )
 
-    DICOM_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50"
-    CSV_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2.csv"
+    # DICOM_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50"
+    # CSV_DIR = "E:/vessel_diff_first_50_patients/mrclean_part1_2.csv"
+    DICOM_DIR = dcm_dir_path
+    CSV_DIR = csv_path
+    
     global patient_info
     try:
         patient_info = pd.read_csv(CSV_DIR, nrows=174)  # Small dataset (50 pat)
@@ -347,9 +362,9 @@ def main():
     patient_pre = patient_info["preEVT"].fillna(False).to_list()
     # print(patient_view[10])
     # print(f'Patient ID: {patient_ids[-1]} \nSeries: {patient_info['series_number'].to_list()[-1]}')
-    prepare_data(dicom_dir=DICOM_DIR, minip_dir="Minipv2", nifti_dir="Niftisv2")
+    prepare_data(dicom_dir=DICOM_DIR, minip_dir=out_minip_path, nifti_dir=out_nifti_path)
 
-    NIFTI_DIR = "Niftis"
+    NIFTI_DIR = out_nifti_path
     FEAT_MAP_DIR = "FeatMaps"
     # save_feature_maps(
     #     in_img_path=NIFTI_DIR,
@@ -363,4 +378,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    args = get_args()
+    main(**vars(args))
