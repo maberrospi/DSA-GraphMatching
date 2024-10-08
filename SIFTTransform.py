@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 import nibabel as nib
 from prepareData import prepare_data, load_and_preprocess_dicom
+from skimage.morphology import binary_dilation, disk, remove_small_objects
+
+MAX_VALID_INTENSITY = 200  # uint8
+MIN_VESSEL_INTENSITY = 2
 
 # Inspiration: https://www.sicara.fr/blog-technique/2019-07-16-image-registration-deep-learning
 #              https://docs.opencv.org/4.x/da/df5/tutorial_py_sift_intro.html
@@ -49,6 +53,9 @@ def feat_kp_dscr(preEVT, postEVT, feat_extr="sift", vis=False):
         axs[1].set_title("Post-EVT keypoints")
         axs[1].imshow(postEVTwKP, cmap="gray")
         # plt.show()
+        for a in axs:
+            a.set_xticks([])
+            a.set_yticks([])
 
     return preEVTkp, preEVTdescr, postEVTkp, postEVTdescr
 
@@ -101,9 +108,11 @@ def plot_matches(preEVT, preEVTkp, postEVT, postEVTkp, matches, feat_extr="sift"
         )
         title = "ORB Matches"
 
-    plt.figure(figsize=(10, 6))
-    plt.imshow(Matchesimg)
-    plt.title(f"{title}")
+    fig, axs = plt.subplots(figsize=(10, 6))
+    axs.imshow(Matchesimg)
+    axs.set_title(f"{title}")
+    axs.set_xticks([])
+    axs.set_yticks([])
     # plt.show()
 
 
@@ -139,6 +148,18 @@ def calculate_transform(preEVTkp, postEVTkp, matches, feat_extr="sift"):
     # )
 
     return H
+
+
+def apply_transformation_v2(transform, image_to_transform):
+    # Warp image
+    warped_image = cv2.warpPerspective(
+        image_to_transform,
+        transform,
+        (image_to_transform.shape[1], image_to_transform.shape[0]),
+        # borderMode=cv2.BORDER_REPLICATE,
+    )
+
+    return warped_image
 
 
 def apply_transformation(transform, preEVT, postEVT, ret=False, vis=False):
@@ -419,6 +440,60 @@ def remove_unwanted_text(preevtimg, postevtimg):
     return preevt, postevt, locations
 
 
+def remove_text_and_border(in_img):
+    def remove_text_2d(
+        img, text_inpaint_radius=3, border_inpaint_radius=10, border_margin=3
+    ):
+        """
+        Input: expected image range 0-255; if 2D+t, t is expected to be the first channel.
+        Remove text and black border lines from a 2D image
+        border_margin: border line dilation radius"""
+        """text mask"""
+        black_text_mask = np.zeros([*img.shape], dtype=bool)
+        black_text_mask[img < MIN_VESSEL_INTENSITY] = True
+        black_text_mask = binary_dilation(black_text_mask, disk(10))
+
+        white_text_mask = np.zeros([*img.shape], dtype=bool)
+        white_text_mask[img > MAX_VALID_INTENSITY] = True
+        white_text_mask = binary_dilation(white_text_mask, disk(10))
+
+        text_mask = white_text_mask & black_text_mask
+        text_mask = binary_dilation(text_mask, disk(5))
+
+        """black border line mask"""
+        black_border_mask = np.zeros(img.shape, dtype=bool)
+        black_border_mask[img < MIN_VESSEL_INTENSITY] = True
+        black_border_mask = remove_small_objects(
+            black_border_mask, min_size=500, connectivity=2
+        )
+        black_border_mask = binary_dilation(black_border_mask, disk(border_margin))
+
+        """Combined mask"""
+        mask = text_mask | black_border_mask
+        """inpaint with small radius for less blur in text area"""
+        img = cv2.inpaint(
+            img, mask.astype(np.uint8), text_inpaint_radius, flags=cv2.INPAINT_TELEA
+        )
+        """inpaint with larger radius for less noise in border area"""
+        img = cv2.inpaint(
+            img,
+            black_border_mask.astype(np.uint8),
+            border_inpaint_radius,
+            flags=cv2.INPAINT_TELEA,
+        )
+        return img
+
+    out_img = in_img.copy()
+    dim = len(in_img.shape)
+    if dim == 3:
+        for idx, frame in enumerate(in_img):
+            out_img[idx] = remove_text_2d(frame)
+    elif dim == 2:
+        out_img = remove_text_2d(in_img)
+    # vis = np.concatenate([np.min(in_img, axis=0), np.min(out_img, axis=0)])
+    return out_img
+
+
 def main():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
@@ -439,7 +514,7 @@ def main():
     # postEVT = cv2.cvtColor(postEVT, cv2.COLOR_BGR2GRAY)
     # prepare_data()
     # IMG_DIR_PATH = "Minipv2/R0030/0"
-    IMG_DIR_PATH = "Niftisv2/R0002/1"
+    IMG_DIR_PATH = "Niftisv2/R0002/0"
     images_path = load_img_dir(IMG_DIR_PATH, img_type="nifti")
     # Check if list is empty
     if not images_path:

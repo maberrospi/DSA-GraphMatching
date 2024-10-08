@@ -6,6 +6,7 @@ from pathlib import Path
 from glob import glob
 import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.widgets import Button
@@ -162,7 +163,6 @@ def map_labels_to_segmentations(segm, dtf, labeled_segm, vis=False):
 def pixel_wise_method(segm_pre_post, vis=False) -> np.ndarray:
     pre_one_idxs = np.nonzero(segm_pre_post[0] == 1)
     final_results = np.zeros(segm_pre_post[0].shape)
-
     for x, y in zip(pre_one_idxs[0], pre_one_idxs[1]):
         # First check if the pixel itself corresponds
         if segm_pre_post[1][x, y] == 1:
@@ -683,198 +683,150 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     plt.show()
 
 
-def main(
-    in_img_path,
-    in_segm_path,
-    in_pre_path,
-    in_post_path,
-    input_format="nifti",
-    load_segs=False,
-    pixel_wise=False,
-    eval=False,
-):
-    log_filepath = "log/{}.log".format(Path(__file__).stem)
-    if not os.path.isdir("log"):
-        os.mkdir("log")
-    logging.basicConfig(
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        handlers=[
-            logging.FileHandler(log_filepath, mode="w"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
+def get_image_pairs(in_img_path, in_segm_path):
+    """
+    This should return a list of pairs of pre- and post- images and their associated segmentations for both the artery and total segmentations
 
-    if eval:
-        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
-        evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
-        return
+    Note: for now we only store the first element in each list
 
-    # pat_id = "R0002"
-    # pat_ori = "1"
-    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
-    if in_img_path != None:
-        IMG_DIR_PATH = in_img_path
-        pat_ori = str(Path(IMG_DIR_PATH).stem)
-        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
-        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
-        # Check if list is empty
-        if not images_path:
-            return
+    """
+    logger.info("loading image pair information")
+    image_path_dict = {}
+    patient_images = os.listdir(in_img_path)
+    patient_segms = os.listdir(in_segm_path)
+    selected_patients = set(patient_images).intersection(patient_segms)
 
-        # Load images from paths
-        images = sift.load_pre_post_imgs(images_path)
+    for patid in selected_patients:
+        patient_dict = get_paths_for_patient(in_img_path, in_segm_path, patid)
+        if patient_dict:
+            image_path_dict[patid] = patient_dict
+    return image_path_dict
 
-    elif in_pre_path and in_post_path != None:
-        images = []
-        images.append(sift.load_img(in_pre_path))
-        images.append(sift.load_img(in_post_path))
+
+def get_paths_for_patient(in_img_path, in_segm_path, patid):
+    niftis_ap = [
+        f
+        for f in glob(os.path.join(in_img_path, patid, "0", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    niftis_lat = [
+        f
+        for f in glob(os.path.join(in_img_path, patid, "1", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    niftis = {"ap": niftis_ap, "lat": niftis_lat}
+    segms_ap = [
+        f
+        for f in glob(os.path.join(in_segm_path, patid, "0", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    segms_lat = [
+        f
+        for f in glob(os.path.join(in_segm_path, patid, "1", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    segms = {"ap": segms_ap, "lat": segms_lat}
+    patient_dict = {}
+    patient_segms_dict = {}
+    for side in ["ap", "lat"]:
+        # art_side_dict = {}
+        full_side_dict = {}
+        segm_art_side_dict = {}
+        segm_vein_side_dict = {}
+        for setting in ["pre", "post"]:
+            filename_ending = f"{setting}"
+            try:
+                # art_side_dict[filename_ending] = [
+                #     f for f in niftis[side] if filename_ending in f and "art" in f
+                # ][0]
+                full_side_dict[filename_ending] = [
+                    f for f in niftis[side] if filename_ending in f and "art" not in f
+                ][0]
+                segm_art_side_dict[filename_ending] = [
+                    f for f in segms[side] if filename_ending in f and "art" in f
+                ][0]
+                segm_vein_side_dict[filename_ending] = [
+                    f for f in segms[side] if filename_ending in f and "vein" in f
+                ][0]
+            except IndexError as e:
+                logger.warning(f"One of the files is missing, skipping case {patid}")
+                logger.warning(e)
+                return {}
+        segm_side_dict = {}
+        segm_side_dict["art"] = segm_art_side_dict
+        segm_side_dict["vein"] = segm_vein_side_dict
+        side_dict = {}
+        # side_dict["art"] = art_side_dict
+        side_dict["full"] = full_side_dict
+        patient_dict[side] = side_dict
+        patient_segms_dict[side] = segm_side_dict
+    return {"nifti": patient_dict, "segm": patient_segms_dict}
+
+
+def load_images_from_paths(data):
+    """
+    Recursively traverses a nested dictionary and replaces file paths with images.
+
+    :param data: The dictionary containing file paths at the leaf nodes.
+    :return: The modified dictionary with images replacing paths.
+    """
+    if isinstance(data, dict):
+        # Traverse each key-value pair in the dictionary
+        return {key: load_images_from_paths(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # If it's a list, apply the function to each element
+        return [load_images_from_paths(item) for item in data]
+    elif isinstance(data, str) and os.path.isfile(data):
+        # If it's a string and a valid file path, load the image
+        try:
+            img = sift.load_img(data)
+            return img  # Return the image instead of the path
+        except Exception as e:
+            print(f"Failed to load image from {data}: {e}")
+            return data  # Return the original path if the image fails to load
     else:
-        raise "One of two possible inputs must be provided."
+        # If it's neither a dictionary, list, nor valid path, return it as is
+        return data
 
-    OrigpreEVT = images[0]
-    OrigpostEVT = images[1]
 
-    # Remove unwanted text that comes with dicoms
-    notextpreEVT, notextpostEVT, locations = sift.remove_unwanted_text(
-        OrigpreEVT, OrigpostEVT
-    )
-    # Remove unwanted black borders if they exist
-    preEVT, postEVT = sift.remove_borders(notextpreEVT, notextpostEVT)
-
+def sift_matching(preEVT, postEVT):
     feature_extractor = "sift"  # choose sift or orb
     prekp, predsc, postkp, postdsc = sift.feat_kp_dscr(
         preEVT, postEVT, feat_extr=feature_extractor
     )
     matches = sift.find_feat_matches(predsc, postdsc, feat_extr=feature_extractor)
+    if not matches:
+        return None, None
     # sift.plot_matches(preEVT, prekp, postEVT, postkp, matches,feat_extr=feature_extractor)
     transformation = sift.calculate_transform(
         prekp, postkp, matches, feat_extr=feature_extractor
     )
+    return transformation, matches
 
-    # 2. Segmentation
 
-    if load_segs and in_img_path != None:
-        # If True we assume that the feature maps will also be loaded
-        IMG_MIN_DIR_PATH = (
-            "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
-        )
-        # IMG_SEQ_DIR_PATH = (
-        #     "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
-        # )
-        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
-    else:
-        # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
-        segm_output_folder = "Outputs/test"
-        # Clear the segmentation output folder for every run
-        # for root, dirs, files in os.walk(segm_output_folder):
-        #     for f in files:
-        #       os.remove(f)
-        for path in Path(segm_output_folder).glob("*"):
-            if path.is_file():
-                path.unlink()
-                # print(path)
-
-        # Returns the sequence feature maps from the chosen layer (feature extraction)
-        # In our case the chosen layer is "up4" form the model
-        # Doesn't work with mrclean dir structure yet.
-        # Need to change this to make sure pre and post are not reversed
-        # Feature maps not needed for the sift-baseline method. This still saves segmentations.
-        # feat_map_pre_post = predict.run_predict(
-        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-        #     in_img_path=IMG_DIR_PATH,
-        #     out_img_path=segm_output_folder,
-        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-        #     input_type="sequence",
-        #     input_format="nifti",
-        #     label_type="av",
-        #     amp=True,
-        # )
-        # On the fly segmentation now only works if you provide pre-post inputs.
-        # Otherwise there is no way to know which is pre and post using a directory as input
-        feat_map_pre_post = []
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_pre_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
-            )
-        )
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_post_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
-            )
-        )
-
-        # Plot the feature maps of one seq for reference (Optional)
-        # predict.display_feature_maps(feat_map_pre_post)
-        # The list contains two maps, where pre-post are first-second
-        # The maps have a torch tensor format
-        IMG_SEQ_DIR_PATH = segm_output_folder
-
-    # segm_images = load_images(IMG_MIN_DIR_PATH)
-    segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
-
-    # Find corresponding pre and post images from the segmentations and feat maps
-    segm_pre_post = []
-    # If data was prepared we check for this
-    if in_img_path != None:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-    else:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-
+def check_transform(segmentation_pair, transformation, preEVT, postEVT):
+    transform_failed = False
     # Check if the transformation quality is better than the original
-    if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
+    if not sift.check_transform(transformation, preEVT, postEVT, verbose=True):
         # The transformation is worse than the original
-        print("Using the original post-EVT image")
-        final_segm_post = segm_pre_post[1]
+        print("Using the original post-EVT image, registering as failed transform")
+        final_segm_post = segmentation_pair[1]
         tr_postEVT = postEVT
+        transform_failed = True
     else:
-        tr_postEVT = sift.apply_transformation(
-            transformation, preEVT, postEVT, ret=True, vis=False
-        )
-        # Scale transformation matrix for segmentation image size
+        tr_postEVT = sift.apply_transformation_v2(transformation, postEVT)
+        # # # Scale transformation matrix for segmentation image size
         scale_matrix = np.array([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 1]])
         transformation = scale_matrix @ transformation @ np.linalg.inv(scale_matrix)
         # Warp and display the segmentations
-        final_segm_post = sift.apply_transformation(
-            transformation, segm_pre_post[0], segm_pre_post[1], ret=True, vis=False
+        final_segm_post = sift.apply_transformation_v2(
+            transformation, segmentation_pair[1]
         )
 
-    # Careful with this since arrays are mutable
-    # Used final_segm_post in order to plot original and transformed post
-    # After the plotting this variable is not necessary anymore.
-    segm_pre_post[1] = final_segm_post
+    return transform_failed, tr_postEVT, final_segm_post
 
-    if pixel_wise:
-        matched_pixels = pixel_wise_method(segm_pre_post, vis=True)
-        # return
 
-    # 3. Skeletonization
-
+def generate_skeletons(segm_pre_post):
     # Perform skeletonization
     skeleton_images, distance_transform = sklt.get_skeletons(
         segm_pre_post,
@@ -883,6 +835,10 @@ def main(
     if not skeleton_images:
         return
 
+    return skeleton_images, distance_transform
+
+
+def extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post):
     # 4. Create Graphs and Extract labeled segments
     skeleton_points = sklt.find_centerlines(skeleton_images[0])
     pre_graph, pre_graph_labeled_skltns = extract_segments(
@@ -909,20 +865,18 @@ def main(
         segm_pre_post[1], distance_transform[1], post_graph_labeled_skltns
     )
 
-    labels_rgb1 = label2rgb(pre_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
-    labels_rgb2 = label2rgb(post_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
-    # fig, axs = plt.subplots(1, 3)
-    # axs[0].imshow(labels_rgb1)
-    # axs[1].imshow(labels_rgb2)
-    # axs[2].imshow(labels_rgb1)
-    # axs[2].imshow(labels_rgb2, alpha=0.5)
-    # for a in axs:
-    #     a.axis("off")
-    # plt.tight_layout()
-    # plt.show()
+    labels_rgb_pre = label2rgb(pre_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
+    labels_rgb2_post = label2rgb(
+        post_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0]
+    )
 
+    return pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs
+
+
+def find_correspondences(
+    pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels, pixel_wise
+):
     # 6. Iteratively compare segments and identify correspondence
-    logger.info("Finding segment correspondences.")
     pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
     post_graph_unique_segs = np.unique(post_graph_labeled_segs)
 
@@ -1043,6 +997,371 @@ def main(
 
         pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
         post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+
+    return pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs
+
+
+def save_labels(
+    root_path, patid, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
+):
+    logger.info(f"Writing images for {patid} {side} in the {root_path} directory")
+    current_folder = os.path.join(root_path, patid, side)
+    if not os.path.exists(current_folder):
+        os.makedirs(
+            current_folder,
+        )
+
+    # preEVT = resize(preEVT, (512, 512))
+    # tr_postEVT = resize(tr_postEVT, (512, 512))
+    # visualize_results(preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb, os.path.join(current_folder, 'rgb.png'))
+
+    save_image(os.path.join(current_folder, "pre_evt.png"), preEVT)
+
+    save_image(os.path.join(current_folder, "post_evt.png"), tr_postEVT)
+
+    save_image(
+        os.path.join(current_folder, "pre_seg_evt.png"), pre_labels_rgb, cmap="plasma"
+    )
+
+    save_image(
+        os.path.join(current_folder, "post_seg_evt.png"), post_labels_rgb, cmap="plasma"
+    )
+
+
+def save_image(
+    filename: str, image_arr: np.ndarray, cmap: str = "gray", size: tuple = None
+):
+    """
+    Utility to save an ndarray as an image, normally assumes
+    """
+    dpi = 300
+    image_arr.astype(np.uint8)
+    if not size:
+        size = (image_arr.shape[0] / dpi, image_arr.shape[1] / dpi)
+    plt.figure(figsize=size, dpi=dpi)
+    plt.axis("off")
+    plt.imshow(image_arr, cmap=cmap)
+    plt.savefig(filename, dpi=dpi, bbox_inches="tight", pad_inches=0)
+
+
+def process_patient(pat_id, paths, pixel_wise=True):
+    # replacing the image path with the loaded images
+    logger.info("loading image paths")
+    images_and_segmentations = load_images_from_paths(paths)
+    images = images_and_segmentations["nifti"]
+    segmentations = images_and_segmentations["segm"]
+    patient_results = {"patid": pat_id, "ap": True, "lat": True}
+
+    for side in ["ap", "lat"]:
+        OrigpreEVT = images[side]["full"]["pre"]
+        OrigpostEVT = images[side]["full"]["post"]
+
+        preEVT = sift.remove_text_and_border(OrigpreEVT)
+        postEVT = sift.remove_text_and_border(OrigpostEVT)
+
+        transformation, matches = sift_matching(preEVT, postEVT)
+        if not matches:
+            logger.info("SIFT has no matches, continuing...")
+            patient_results[side] = False
+            continue
+
+        # Check if the transformation quality is better than the original
+        # segmentation_pair = segmentations[side]['art']
+        segm_pre_post = [
+            segmentations[side]["art"]["pre"],
+            segmentations[side]["art"]["post"],
+        ]
+        try:
+            transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+                segm_pre_post, transformation, preEVT, postEVT
+            )
+        except ValueError:
+            transform_failed = True
+            tr_postEVT = postEVT
+            return {"patid": pat_id, "ap": False, "lat": False}
+
+        # Careful with this since arrays are mutable
+        # Used final_segm_post in order to plot original and transformed post
+        # After the plotting this variable is not necessary anymore.
+        # segm_pre_post[1] = final_segm_post
+
+        matched_pixels = []
+        if pixel_wise:
+            matched_pixels = pixel_wise_method(segm_pre_post, vis=False)
+
+        if transform_failed:
+            patient_results[side] = False
+
+        # 3. Skeletonization
+
+        logger.info(f"Skeletonizing {side}")
+
+        skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+        # 4. Create Graphs and Extract labeled segments
+
+        logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+        pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+            extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+        )
+        # fig, axs = plt.subplots(1, 3)
+        # axs[0].imshow(labels_rgb1)
+        # axs[1].imshow(labels_rgb2)
+        # axs[2].imshow(labels_rgb1)
+        # axs[2].imshow(labels_rgb2, alpha=0.5)
+        # for a in axs:
+        #     a.axis("off")
+        # plt.tight_layout()
+        # plt.show()
+
+        # 6. Iteratively compare segments and identify correspondence
+        logger.info("Performing segment correspondence matching.")
+        pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+            find_correspondences(
+                pre_graph_labeled_segs,
+                post_graph_labeled_segs,
+                matched_pixels,
+                pixel_wise,
+            )
+        )
+
+        save_labels(
+            "cases", pat_id, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
+        )
+        print(f"{side} completed")
+    return patient_results
+
+
+def setup_logging():
+    log_filepath = "log/{}.log".format(Path(__file__).stem)
+    if not os.path.isdir("log"):
+        os.mkdir("log")
+    logging.basicConfig(
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        handlers=[
+            logging.FileHandler(log_filepath, mode="w"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+
+def main(
+    in_img_path,
+    in_segm_path,
+    in_pre_path,
+    in_post_path,
+    input_format="nifti",
+    load_segs=False,
+    pixel_wise=False,
+    eval=False,
+):
+    setup_logging()
+
+    # Temporary only run this
+    # Load all input images into a dictionary for processing
+    image_path_dictionary = get_image_pairs(
+        in_img_path=in_img_path, in_segm_path=in_segm_path
+    )
+    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+    processed_cases = os.listdir("cases")
+    image_path_dictionary = {
+        key: image_path_dictionary[key]
+        for key in image_path_dictionary
+        if key not in processed_cases
+    }
+    for patid, paths in image_path_dictionary.items():
+        logger.info(f"{patid:=^20}")
+        patient_success = process_patient(patid, paths, pixel_wise)
+        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
+    df_successes.to_csv("successes.csv")
+    return
+
+    if eval:
+        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
+        evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
+        return
+
+    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+
+    # pat_id = "R0002"
+    # pat_ori = "1"
+    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
+    if in_img_path != None:
+        IMG_DIR_PATH = in_img_path
+        pat_ori = str(Path(IMG_DIR_PATH).stem)
+        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
+        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
+        # Check if list is empty
+        if not images_path:
+            return
+
+        # Load images from paths
+        images = sift.load_pre_post_imgs(images_path)
+
+    elif in_pre_path and in_post_path != None:
+        images = []
+        images.append(sift.load_img(in_pre_path))
+        images.append(sift.load_img(in_post_path))
+    else:
+        raise "One of two possible inputs must be provided."
+
+    # patient_results = {"patid": pat_id, "ap": True, "lat": True}
+
+    OrigpreEVT = images[0]
+    OrigpostEVT = images[1]
+
+    preEVT = sift.remove_text_and_border(OrigpreEVT)
+    postEVT = sift.remove_text_and_border(OrigpostEVT)
+
+    transformation, matches = sift_matching(preEVT, postEVT)
+    if not matches:
+        logger.info("SIFT has no matches, continuing...")
+        # patient_results[side] = False
+        # continue the loop
+
+    # 2. Segmentation
+
+    if load_segs and in_img_path != None:
+        # If True we assume that the feature maps will also be loaded
+        IMG_MIN_DIR_PATH = (
+            "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
+        )
+        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
+    else:
+        # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
+        segm_output_folder = "Outputs/test"
+        # Clear the segmentation output folder for every run
+        # for root, dirs, files in os.walk(segm_output_folder):
+        #     for f in files:
+        #       os.remove(f)
+        for path in Path(segm_output_folder).glob("*"):
+            if path.is_file():
+                path.unlink()
+                # print(path)
+
+        # Returns the sequence feature maps from the chosen layer (feature extraction)
+        # In our case the chosen layer is "up4" form the model
+        # Doesn't work with mrclean dir structure yet.
+        # Need to change this to make sure pre and post are not reversed
+        # Feature maps not needed for the sift-baseline method. This still saves segmentations.
+        # feat_map_pre_post = predict.run_predict(
+        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+        #     in_img_path=IMG_DIR_PATH,
+        #     out_img_path=segm_output_folder,
+        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+        #     input_type="sequence",
+        #     input_format="nifti",
+        #     label_type="av",
+        #     amp=True,
+        # )
+        # On the fly segmentation now only works if you provide pre-post inputs.
+        # Otherwise there is no way to know which is pre and post using a directory as input
+        feat_map_pre_post = []
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_pre_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format=input_format,
+                label_type="av",
+                amp=True,
+            )
+        )
+        feat_map_pre_post.append(
+            predict.run_predict(
+                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+                in_img_path=in_post_path,
+                out_img_path=segm_output_folder,
+                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+                input_type="sequence",
+                input_format=input_format,
+                label_type="av",
+                amp=True,
+            )
+        )
+
+        # Plot the feature maps of one seq for reference (Optional)
+        # predict.display_feature_maps(feat_map_pre_post)
+        # The list contains two maps, where pre-post are first-second
+        # The maps have a torch tensor format
+        IMG_SEQ_DIR_PATH = segm_output_folder
+
+    # segm_images = load_images(IMG_MIN_DIR_PATH)
+    segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
+
+    # Find corresponding pre and post images from the segmentations and feat maps
+    segm_pre_post = []
+    # If data was prepared we check for this
+    if in_img_path != None:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
+                    segm_pre_post.insert(0, sift.load_img(segm))
+                else:
+                    segm_pre_post.append(sift.load_img(segm))
+    else:
+        for segm in segm_images:
+            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
+                    segm_pre_post.insert(0, sift.load_img(segm))
+                else:
+                    segm_pre_post.append(sift.load_img(segm))
+
+    # Check if the transformation quality is better than the original
+
+    try:
+        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+            segm_pre_post, transformation, preEVT, postEVT
+        )
+    except ValueError:
+        transform_failed = True
+        tr_postEVT = postEVT
+        return {"patid": pat_id, "ap": False, "lat": False}
+
+    # Careful with this since arrays are mutable
+    # Used final_segm_post in order to plot original and transformed post
+    # After the plotting this variable is not necessary anymore.
+    # segm_pre_post[1] = final_segm_post
+
+    if pixel_wise:
+        matched_pixels = pixel_wise_method(segm_pre_post, vis=True)
+        # return
+
+    # 3. Skeletonization
+
+    logger.info(f"Skeletonizing")
+
+    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+    # 4. Create Graphs and Extract labeled segments
+
+    logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+    )
+    # fig, axs = plt.subplots(1, 3)
+    # axs[0].imshow(labels_rgb1)
+    # axs[1].imshow(labels_rgb2)
+    # axs[2].imshow(labels_rgb1)
+    # axs[2].imshow(labels_rgb2, alpha=0.5)
+    # for a in axs:
+    #     a.axis("off")
+    # plt.tight_layout()
+    # plt.show()
+
+    # 6. Iteratively compare segments and identify correspondence
+    logger.info("Performing segment correspondence matching.")
+    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+        find_correspondences(
+            pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels, pixel_wise
+        )
+    )
 
     visualize_results(
         segm_pre_post[0], segm_pre_post[1], pre_labels_rgb, post_labels_rgb
