@@ -1001,6 +1001,37 @@ def find_correspondences(
     return pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs
 
 
+def save_overlayed(root_path, patid, side, preEVT, warped_postEVT):
+    logger.info(
+        f"Writing overlayed transformation images for {patid} {side} in the {root_path} directory"
+    )
+    dpi = 300
+    current_folder = os.path.join(root_path, patid, side)
+    if not os.path.exists(current_folder):
+        os.makedirs(
+            current_folder,
+        )
+    # Overlay transformed and pre-EVT images
+    fig, axs = plt.subplots(1, 3, figsize=(12, 6))
+    axs[0].imshow(preEVT, cmap="gray")
+    axs[0].imshow(warped_postEVT, cmap="Purples", alpha=0.5)
+    axs[1].imshow(preEVT, cmap="gray")
+    axs[2].imshow(warped_postEVT, cmap="Purples")
+    axs[0].set_title("Overlayed Transform")
+    axs[1].set_title("Pre-EVT")
+    axs[2].set_title("Transformed Post-EVT")
+    for a in axs:
+        a.set_xticks([])
+        a.set_yticks([])
+
+    plt.savefig(
+        os.path.join(current_folder, "overlayed.png"),
+        dpi=dpi,
+        bbox_inches="tight",
+        pad_inches=0,
+    )
+
+
 def save_labels(
     root_path, patid, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
 ):
@@ -1079,6 +1110,8 @@ def process_patient(pat_id, paths, pixel_wise=True):
             transform_failed = True
             tr_postEVT = postEVT
             return {"patid": pat_id, "ap": False, "lat": False}
+
+        save_overlayed("overlayed_cases", pat_id, side, preEVT, tr_postEVT)
 
         # Careful with this since arrays are mutable
         # Used final_segm_post in order to plot original and transformed post
