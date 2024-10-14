@@ -1130,71 +1130,80 @@ def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
     patient_results = {"patid": pat_id, "ap": True, "lat": True}
 
     for side in ["ap", "lat"]:
-        OrigpreEVT = images[side]["full"]["pre"]
-        OrigpostEVT = images[side]["full"]["post"]
-
-        preEVT = sift.remove_text_and_border(OrigpreEVT)
-        postEVT = sift.remove_text_and_border(OrigpostEVT)
-
-        transformation, matches = sift_matching(preEVT, postEVT)
-        if not matches:
-            logger.info("SIFT has no matches, continuing...")
-            patient_results[side] = False
-            continue
-
-        # Check if the transformation quality is better than the original
-        segm_pre_post = [
-            segmentations[side]["art"]["pre"],
-            segmentations[side]["art"]["post"],
-        ]
-        try:
-            transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
-                segm_pre_post, transformation, preEVT, postEVT
-            )
-        except ValueError:
-            transform_failed = True
-            tr_postEVT = postEVT
-            return {"patid": pat_id, "ap": False, "lat": False}
-
-        save_overlayed("overlayed_cases", pat_id, side, preEVT, tr_postEVT)
-
-        matched_pixels = []
-        if pixel_wise:
-            matched_pixels = pixel_wise_method(segm_pre_post, vis=False)
-
-        if transform_failed:
-            patient_results[side] = False
-
-        # 3. Skeletonization
-
-        logger.info(f"Skeletonizing {side}")
-
-        skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
-
-        # 4. Create Graphs and Extract labeled segments
-
-        logger.info(f"Generating Graphs and Extracting Labeled Segments")
-
-        pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
-            extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+        patient_results[side] = process_side(
+            pat_id, side, images, segmentations, pixel_wise
         )
 
-        # 6. Iteratively compare segments and identify correspondence
-        logger.info("Performing segment correspondence matching.")
-        pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
-            find_correspondences(
-                pre_graph_labeled_segs,
-                post_graph_labeled_segs,
-                matched_pixels,
-                pixel_wise,
-            )
-        )
-
-        save_labels(
-            "cases", pat_id, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
-        )
-        print(f"{side} completed")
     return patient_results
+
+
+def process_side(
+    pat_id: str, side: str, images: dict, segmentations: dict, pixel_wise: bool = True
+) -> bool:
+    preEVT, postEVT = prepare_images(images[side]["full"])
+    transformation, matches = sift_matching(preEVT, postEVT)
+    if not matches:
+        logger.info("SIFT has no matches, continuing...")
+        return False
+
+    # Check if the transformation quality is better than the original
+    segm_pre_post = [
+        segmentations[side]["art"]["pre"],
+        segmentations[side]["art"]["post"],
+    ]
+    try:
+        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+            segm_pre_post, transformation, preEVT, postEVT
+        )
+    except ValueError:
+        transform_failed = True
+        tr_postEVT = postEVT
+        return False
+
+    save_overlayed("overlayed_cases", pat_id, side, preEVT, tr_postEVT)
+
+    matched_pixels = pixel_wise_method(segm_pre_post, vis=False) if pixel_wise else []
+
+    if transform_failed:
+        return False
+
+    # 3. Skeletonization
+
+    logger.info(f"Skeletonizing {side}")
+
+    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+    # 4. Create Graphs and Extract labeled segments
+
+    logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+    )
+
+    # 6. Iteratively compare segments and identify correspondence
+    logger.info("Performing segment correspondence matching.")
+    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+        find_correspondences(
+            pre_graph_labeled_segs,
+            post_graph_labeled_segs,
+            matched_pixels,
+            pixel_wise,
+        )
+    )
+
+    save_labels(
+        "cases", pat_id, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
+    )
+    print(f"{side} completed")
+
+    return True
+
+
+def prepare_images(images: dict) -> tuple[np.ndarray, np.ndarray]:
+    preEVT = sift.remove_text_and_border(images["pre"])
+    postEVT = sift.remove_text_and_border(images["post"])
+    return preEVT, postEVT
 
 
 def setup_logging():
