@@ -82,7 +82,6 @@ def get_ordered_segment(graph, segment, segm_ids) -> list:
             # Add the additional endpoint neighbors of the original graph to the list
             # if there exist any
             endpoint_neighbors = [point_list[1]] + [point_list[-2]]
-            # print(endpoint_neighbors)
             for i in range(2):
                 # FYI. graph.vs[point_list[-i]].neighbors(): returns a node object
                 for nb in graph.neighbors(point_list[-i]):
@@ -124,7 +123,6 @@ def extract_segments(
         x_coords = list(map(int, point_list["x"]))  # floor
         y_coords = list(map(int, point_list["y"]))
         for pt in zip(x_coords, y_coords):
-            # print(pt)
             # Add its index label to the pt positions
             labeled_segments[pt[1], pt[0]] = label_idx
 
@@ -664,7 +662,6 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     segm_pre_rgb = np.dstack((segm_pre,) * 3)
     segm_post_rgb = np.dstack((segm_post,) * 3)
 
-    # print(pre_labels_rgb[:5, :5, :])
     black_pixels_mask = (lbls_pre == [0, 0, 0]).all(axis=-1)
     pre_labels_rgb_overlayed = np.where(
         black_pixels_mask[..., None], segm_pre_rgb, lbls_pre
@@ -683,14 +680,14 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     plt.show()
 
 
-def get_image_pairs(in_img_path, in_segm_path):
+def get_image_pairs(in_img_path: str, in_segm_path: str):
     """
     This should return a list of pairs of pre- and post- images and their associated segmentations for both the artery and total segmentations
 
     Note: for now we only store the first element in each list
 
     """
-    logger.info("loading image pair information")
+    logger.info("Loading image pair information")
     image_path_dict = {}
     patient_images = os.listdir(in_img_path)
     patient_segms = os.listdir(in_segm_path)
@@ -873,135 +870,184 @@ def extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
     return pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs
 
 
-def find_correspondences(
-    pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels, pixel_wise
+def contour_based_matching(
+    pre_graph_labeled_segs, post_graph_labeled_segs, iou_threshold=0.3
 ):
-    # 6. Iteratively compare segments and identify correspondence
+    pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
+    post_graph_unique_segs = np.unique(post_graph_labeled_segs)
+
+    pre_matched_segs = np.zeros_like(pre_graph_labeled_segs)
+    post_matched_segs = np.zeros_like(post_graph_labeled_segs)
+    match_id = 1
+
+    for pre_segm in pre_graph_unique_segs:
+        if pre_segm == 0:
+            continue
+        pre_temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
+        # Convert binary images to uint8 format for OpenCV
+        pre_temp_mask = (pre_temp_mask * 255).astype(np.uint8)
+        # Find contours
+        pre_contours, _ = cv2.findContours(
+            pre_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
+        )
+        # FOR NOW: Skip contours with less than 4 points
+        if len(pre_contours[0].squeeze()) < 4:
+            continue
+        # Create rectangle on contour
+        x1, y1, w1, h1 = cv2.boundingRect(pre_contours[0])
+        # Convert contour to polygon
+        pre_polygon = Polygon(pre_contours[0].squeeze())
+
+        for post_segm in post_graph_unique_segs:
+            if post_segm == 0:
+                continue
+            post_temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
+            post_temp_mask = (post_temp_mask * 255).astype(np.uint8)
+            post_contours, _ = cv2.findContours(
+                post_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
+            )
+            if len(post_contours[0].squeeze()) < 4:
+                continue
+
+            # Create rectangle on contour
+            x2, y2, w2, h2 = cv2.boundingRect(post_contours[0])
+            # Skip if there is no overlap on the bounding boxes
+            if (x1 + w1 < x2 or x2 + w2 < x1) or (y1 + h1 < y2 or y2 + h2 < y1):
+                continue
+
+            post_polygon = Polygon(post_contours[0].squeeze())
+
+            # Debugging:
+            # xv, yv = pre_polygon.exterior.xy
+            # xv2, yv2 = post_polygon.exterior.xy
+            # fig, ax = plt.subplots()
+            # ax.plot(xv, yv)
+            # ax.plot(xv2, yv2)
+            # plt.show()
+
+            # Calculate the intersection and union
+            intersection = pre_polygon.intersection(post_polygon)
+            while True:  # Still have to fix this it doesnt work yet.
+                try:
+                    union = pre_polygon.union(post_polygon)
+                    break
+                except shapely.errors.GEOSException:
+                    if not shapely.is_valid(pre_polygon):
+                        pre_polygon = shapely.make_valid(pre_polygon)
+                    elif not shapely.is_valid(post_polygon):
+                        post_polygon = shapely.make_valid(post_polygon)
+                    xv, yv = pre_polygon.exterior.xy
+                    xv2, yv2 = post_polygon.exterior.xy
+                    fig, ax = plt.subplots()
+                    ax.plot(xv, yv)
+                    ax.plot(xv2, yv2)
+                    plt.show()
+
+            # Calculate areas
+            intersection_area = intersection.area
+            union_area = union.area
+
+            # Calculate IoU
+            iou = intersection_area / union_area if union_area != 0 else 0
+
+            iou_threshold = 0.3
+
+            if iou > iou_threshold:
+                pre_matched_segs[pre_temp_mask == 255] = match_id
+                post_matched_segs[post_temp_mask == 255] = match_id
+                match_id += 1
+                break
+
+    logger.info("Segments matched successfully!")
+    return pre_matched_segs, post_matched_segs
+
+
+def pixel_wise_based_matching(
+    pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels
+):
     pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
     post_graph_unique_segs = np.unique(post_graph_labeled_segs)
 
     pre_matched_segs = np.zeros(pre_graph_labeled_segs.shape)
     post_matched_segs = np.zeros(post_graph_labeled_segs.shape)
-    match_id = 1
 
+    # Use the calculated pixel-wise mask and the labeled segments to
+    # identify matching segments based on the mask coverage of each segment
+    for pre_segm in pre_graph_unique_segs:
+        if pre_segm == 0:  # Skip id == 0
+            continue
+        temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
+        temp_one_idxs = np.nonzero(temp_mask == 1)
+        match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
+        # If the number of 0's is larger than 50% of the difference we assume its matched
+        # If the number of 1's is larger than 50% we assume its missed
+        if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
+            pre_matched_segs[temp_mask == 1] = 1
+        elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
+            pre_matched_segs[temp_mask == 1] = 2
+
+    for post_segm in post_graph_unique_segs:
+        if post_segm == 0:
+            continue
+        temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
+        temp_one_idxs = np.nonzero(temp_mask == 1)
+        match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
+        # If the number of 0's is larger than 50% of the difference we assume its matched
+        if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
+            post_matched_segs[temp_mask == 1] = 1
+        elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
+            post_matched_segs[temp_mask == 1] = 2
+
+    logger.info("Segments matched successfully!")
+    return pre_matched_segs, post_matched_segs
+
+
+def find_correspondences(
+    pre_graph_labeled_segs: np.ndarray,
+    post_graph_labeled_segs: np.ndarray,
+    matched_pixels: np.ndarray,
+    pixel_wise: bool,
+):
+    """
+    This function finds the vessel correspondences between the pre and post labeled vessel segmentations.
+    It uses the pixel-wise method or the contour-based method to find the correspondences.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        matched_pixels (np.ndarray): The matched pixels between the pre and post segmentations.
+        pixel_wise (bool): Whether to use the pixel-wise method or the contour-based method.
+
+    Returns:
+        pre_labels_rgb (np.ndarray): The pre labeled matched and unmatched vessel segments in RGB format.
+        post_labels_rgb (np.ndarray): The post labeled matched and unmatched vessel segments in RGB format.
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
+    # 6. Iteratively compare segments and identify correspondence
     if not pixel_wise:
-        for pre_segm in pre_graph_unique_segs:
-            if pre_segm == 0:  # Skip id == 0
-                continue
-            pre_temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
-            # Convert binary images to uint8 format for OpenCV
-            pre_temp_mask = (pre_temp_mask * 255).astype(np.uint8)
-            # Find contours
-            pre_contours, _ = cv2.findContours(
-                pre_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
-            )
-            # FOR NOW: Skip contours with less than 4 points
-            if len(pre_contours[0].squeeze()) < 4:
-                continue
-            # Create rectangle on contour
-            x1, y1, w1, h1 = cv2.boundingRect(pre_contours[0])
-            # Convert contour to polygon
-            pre_polygon = Polygon(pre_contours[0].squeeze())
-            for post_segm in post_graph_unique_segs:
-                if post_segm == 0:
-                    continue
-                post_temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
-                post_temp_mask = (post_temp_mask * 255).astype(np.uint8)
-                post_contours, _ = cv2.findContours(
-                    post_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
-                )
-                if len(post_contours[0].squeeze()) < 4:
-                    continue
-
-                # Create rectangle on contour
-                x2, y2, w2, h2 = cv2.boundingRect(post_contours[0])
-                # Skip if there is no overlap on the bounding boxes
-                if (x1 + w1 < x2 or x2 + w2 < x1) or (y1 + h1 < y2 or y2 + h2 < y1):
-                    continue
-
-                post_polygon = Polygon(post_contours[0].squeeze())
-
-                # Debugging:
-                # xv, yv = pre_polygon.exterior.xy
-                # xv2, yv2 = post_polygon.exterior.xy
-                # fig, ax = plt.subplots()
-                # ax.plot(xv, yv)
-                # ax.plot(xv2, yv2)
-                # plt.show()
-
-                # Calculate the intersection and union
-                intersection = pre_polygon.intersection(post_polygon)
-                while True:  # Still have to fix this it doesnt work yet.
-                    try:
-                        union = pre_polygon.union(post_polygon)
-                        break
-                    except shapely.errors.GEOSException:
-                        if not shapely.is_valid(pre_polygon):
-                            pre_polygon = shapely.make_valid(pre_polygon)
-                        elif not shapely.is_valid(post_polygon):
-                            post_polygon = shapely.make_valid(post_polygon)
-                        xv, yv = pre_polygon.exterior.xy
-                        xv2, yv2 = post_polygon.exterior.xy
-                        fig, ax = plt.subplots()
-                        ax.plot(xv, yv)
-                        ax.plot(xv2, yv2)
-                        plt.show()
-
-                # Calculate areas
-                intersection_area = intersection.area
-                union_area = union.area
-
-                # Calculate IoU
-                iou = intersection_area / union_area if union_area != 0 else 0
-
-                iou_threshold = 0.3
-
-                if iou > iou_threshold:
-                    pre_matched_segs[pre_temp_mask == 255] = match_id
-                    post_matched_segs[post_temp_mask == 255] = match_id
-                    match_id += 1
-                    break
-        logger.info("Segments matched successfully!")
-
-        pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
-        post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+        pre_matched_segs, post_matched_segs = contour_based_matching(
+            pre_graph_labeled_segs, post_graph_labeled_segs
+        )
     else:
-        # Use the calculated pixel-wise mask and the labeled segments to
-        # identify matching segments based on the mask coverage of each segment
-        for pre_segm in pre_graph_unique_segs:
-            if pre_segm == 0:  # Skip id == 0
-                continue
-            temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
-            temp_one_idxs = np.nonzero(temp_mask == 1)
-            match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
-            # If the number of 0's is larger than 50% of the difference we assume its matched
-            # If the number of 1's is larger than 50% we assume its missed
-            if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
-                pre_matched_segs[temp_mask == 1] = 1
-            elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
-                pre_matched_segs[temp_mask == 1] = 2
+        pre_matched_segs, post_matched_segs = pixel_wise_based_matching(
+            pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels
+        )
 
-        for post_segm in post_graph_unique_segs:
-            if post_segm == 0:
-                continue
-            temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
-            temp_one_idxs = np.nonzero(temp_mask == 1)
-            match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
-            # If the number of 0's is larger than 50% of the difference we assume its matched
-            if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
-                post_matched_segs[temp_mask == 1] = 1
-            elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
-                post_matched_segs[temp_mask == 1] = 2
-
-        logger.info("Segments matched successfully!")
-
-        pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
-        post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+    # Convert the matched segments to RGB format
+    pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+    post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
 
     return pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs
 
 
-def save_overlayed(root_path, patid, side, preEVT, warped_postEVT):
+def save_overlayed(
+    root_path: str,
+    patid: str,
+    side: str,
+    preEVT: np.ndarray,
+    warped_postEVT: np.ndarray,
+):
     logger.info(
         f"Writing overlayed transformation images for {patid} {side} in the {root_path} directory"
     )
@@ -1075,9 +1121,9 @@ def save_image(
     plt.savefig(filename, dpi=dpi, bbox_inches="tight", pad_inches=0)
 
 
-def process_patient(pat_id, paths, pixel_wise=True):
+def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
     # replacing the image path with the loaded images
-    logger.info("loading image paths")
+    logger.info("Loading image paths")
     images_and_segmentations = load_images_from_paths(paths)
     images = images_and_segmentations["nifti"]
     segmentations = images_and_segmentations["segm"]
@@ -1097,7 +1143,6 @@ def process_patient(pat_id, paths, pixel_wise=True):
             continue
 
         # Check if the transformation quality is better than the original
-        # segmentation_pair = segmentations[side]['art']
         segm_pre_post = [
             segmentations[side]["art"]["pre"],
             segmentations[side]["art"]["post"],
@@ -1112,11 +1157,6 @@ def process_patient(pat_id, paths, pixel_wise=True):
             return {"patid": pat_id, "ap": False, "lat": False}
 
         save_overlayed("overlayed_cases", pat_id, side, preEVT, tr_postEVT)
-
-        # Careful with this since arrays are mutable
-        # Used final_segm_post in order to plot original and transformed post
-        # After the plotting this variable is not necessary anymore.
-        # segm_pre_post[1] = final_segm_post
 
         matched_pixels = []
         if pixel_wise:
@@ -1138,15 +1178,6 @@ def process_patient(pat_id, paths, pixel_wise=True):
         pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
             extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
         )
-        # fig, axs = plt.subplots(1, 3)
-        # axs[0].imshow(labels_rgb1)
-        # axs[1].imshow(labels_rgb2)
-        # axs[2].imshow(labels_rgb1)
-        # axs[2].imshow(labels_rgb2, alpha=0.5)
-        # for a in axs:
-        #     a.axis("off")
-        # plt.tight_layout()
-        # plt.show()
 
         # 6. Iteratively compare segments and identify correspondence
         logger.info("Performing segment correspondence matching.")
