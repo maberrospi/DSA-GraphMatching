@@ -31,7 +31,26 @@ from Segmentation import predict
 logger = logging.getLogger(__name__)
 
 
-def create_graph(skeleton_img, skeleton_pts, dst_transform, g_name=None, verbose=True):
+def create_graph(
+    skeleton_img: np.ndarray,
+    skeleton_pts: np.ndarray,
+    dst_transform: np.ndarray,
+    g_name=None,
+    verbose=True,
+):
+    """
+    Creates a graph from the skeleton image and skeleton points.
+
+    Args:
+        skeleton_img (np.ndarray): The skeleton image.
+        skeleton_pts (np.ndarray): The skeleton points.
+        dst_transform (np.ndarray): The distance transform of the skeleton image.
+        g_name (str, optional): The name of the graph. Defaults to None.
+        verbose (bool, optional): Whether to print the graph information. Defaults to True.
+
+    Returns:
+        sk_graph (ig.Graph): The graph generated from the skeleton.
+    """
     if not g_name:
         g_name = "Temp"
 
@@ -61,6 +80,17 @@ def create_graph(skeleton_img, skeleton_pts, dst_transform, g_name=None, verbose
 
 
 def get_ordered_segment(graph, segment, segm_ids) -> list:
+    """
+    Extracts the ordered segment from the graph.
+
+    Args:
+        graph (ig.Graph): The graph.
+        segment (list): The segment.
+        segm_ids (list): The segment node ids.
+
+    Returns:
+        point_list (list): The ordered segment.
+    """
     # Only consider large segment paths
     if len(segment) == 1:
         return []
@@ -97,9 +127,30 @@ def get_ordered_segment(graph, segment, segm_ids) -> list:
 
 
 def extract_segments(
-    skeleton_img, skeleton_pts, dst_transform, g_name=None, vis=False, verbose=True
+    skeleton_img: np.ndarray,
+    skeleton_pts: np.ndarray,
+    dst_transform: np.ndarray,
+    g_name=None,
+    vis=False,
+    verbose=True,
 ):
+    """
+    Creates a graph from the skeleton image and skeleton points.
+    Simplifies the graph and filters unwanted edges and nodes.
+    Finally extracts the labeled segments from the skeleton image.
 
+    Args:
+        skeleton_img (np.ndarray): The skeleton image.
+        skeleton_pts (np.ndarray): The skeleton points.
+        dst_transform (np.ndarray): The distance transform of the skeleton image.
+        g_name (str, optional): The name of the graph. Defaults to None.
+        vis (bool, optional): Whether to visualize the labeled segments. Defaults to False.
+        verbose (bool, optional): Whether to print the graph information. Defaults to True.
+
+    Returns:
+        sk_graph (ig.Graph): The graph generated from the skeleton.
+        labeled_segments (np.ndarray): The labeled skeleton vessel segments.
+    """
     # Construct graph
     sk_graph = create_graph(
         skeleton_img, skeleton_pts, dst_transform, g_name=g_name, verbose=verbose
@@ -139,8 +190,22 @@ def extract_segments(
     return sk_graph, labeled_segments
 
 
-def map_labels_to_segmentations(segm, dtf, labeled_segm, vis=False):
-    # Apply the watershed algorithm using the labeled skeleton as markers
+def map_labels_to_segmentations(
+    segm: np.ndarray, dtf: np.ndarray, labeled_segm: np.ndarray, vis=False
+):
+    """
+    Maps the labeled skeleton segments to the complete segmentations.
+    Apply the watershed algorithm using the labeled skeleton as markers
+
+    Args:
+        segm (np.ndarray): The complete segmentation.
+        dtf (np.ndarray): The distance transform of the complete segmentation.
+        labeled_segm (np.ndarray): The labeled segments.
+        vis (bool, optional): Whether to visualize the labeled segments. Defaults to False.
+
+    Returns:
+        labels (np.ndarray): The labeled segmentations.
+    """
     # Int cast for issue with watershed
     labeled_segm = labeled_segm.astype(int)
     labels = watershed(-dtf, markers=labeled_segm, mask=segm)
@@ -700,7 +765,7 @@ def get_image_pairs(in_img_path: str, in_segm_path: str):
     return image_path_dict
 
 
-def get_paths_for_patient(in_img_path, in_segm_path, patid):
+def get_paths_for_patient(in_img_path: str, in_segm_path: str, patid: str):
     niftis_ap = [
         f
         for f in glob(os.path.join(in_img_path, patid, "0", "**"), recursive=True)
@@ -764,8 +829,11 @@ def load_images_from_paths(data):
     """
     Recursively traverses a nested dictionary and replaces file paths with images.
 
-    :param data: The dictionary containing file paths at the leaf nodes.
-    :return: The modified dictionary with images replacing paths.
+    Args:
+        data (dict): The dictionary containing file paths at the leaf nodes.
+
+    Returns:
+        The modified dictionary with images replacing paths.
     """
     if isinstance(data, dict):
         # Traverse each key-value pair in the dictionary
@@ -786,7 +854,19 @@ def load_images_from_paths(data):
         return data
 
 
-def sift_matching(preEVT, postEVT):
+def sift_matching(preEVT: np.ndarray, postEVT: np.ndarray):
+    """
+    Uses SIFT to generate keypoints and descriptors from the pre and post-EVT images and finds the matches between the keypoints.
+    It then calculates the transformation matrix and returns it.
+
+    Args:
+        preEVT (np.ndarray): The pre-EVT image.
+        postEVT (np.ndarray): The post-EVT image.
+
+    Returns:
+        transformation (np.ndarray): The transformation matrix.
+        matches (np.ndarray): The matches between the pre and post-EVT images.
+    """
     feature_extractor = "sift"  # choose sift or orb
     prekp, predsc, postkp, postdsc = sift.feat_kp_dscr(
         preEVT, postEVT, feat_extr=feature_extractor
@@ -801,7 +881,26 @@ def sift_matching(preEVT, postEVT):
     return transformation, matches
 
 
-def check_transform(segmentation_pair, transformation, preEVT, postEVT):
+def check_transform(
+    segmentation_pair: list[np.ndarray],
+    transformation: np.ndarray,
+    preEVT: np.ndarray,
+    postEVT: np.ndarray,
+):
+    """
+    Checks if the transformation is better than the original.
+
+    Args:
+        segmentation_pair (list[np.ndarray]): The pre and post segmentations.
+        transformation (np.ndarray): The transformation matrix.
+        preEVT (np.ndarray): The pre-EVT image.
+        postEVT (np.ndarray): The post-EVT image.
+
+    Returns:
+        transform_failed (bool): True if the transformation is worse than the original, False otherwise.
+        tr_postEVT (np.ndarray): The transformed (or not) post-EVT image.
+        final_segm_post (np.ndarray): The tranformed (or not) post-EVT segmentation.
+    """
     transform_failed = False
     # Check if the transformation quality is better than the original
     if not sift.check_transform(transformation, preEVT, postEVT, verbose=True):
@@ -823,7 +922,7 @@ def check_transform(segmentation_pair, transformation, preEVT, postEVT):
     return transform_failed, tr_postEVT, final_segm_post
 
 
-def generate_skeletons(segm_pre_post):
+def generate_skeletons(segm_pre_post: list[np.ndarray]):
     # Perform skeletonization
     skeleton_images, distance_transform = sklt.get_skeletons(
         segm_pre_post,
@@ -835,7 +934,26 @@ def generate_skeletons(segm_pre_post):
     return skeleton_images, distance_transform
 
 
-def extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post):
+def extract_labeled_segments(
+    skeleton_images: np.ndarray,
+    distance_transform: np.ndarray,
+    segm_pre_post: list[np.ndarray],
+):
+    """
+    Extracts the labeled segments from the pre and post segmentation skeletons and generates the labeled segments for the complete segmentations.
+
+    Args:
+        skeleton_images (np.ndarray): The skeletonized images.
+        distance_transform (np.ndarray): The distance transform of the skeletonized images.
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+
+    Returns:
+        pre_graph (np.ndarray): The pre-EVT graph.
+        post_graph (np.ndarray): The post-EVT graph.
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+    """
+
     # 4. Create Graphs and Extract labeled segments
     skeleton_points = sklt.find_centerlines(skeleton_images[0])
     pre_graph, pre_graph_labeled_skltns = extract_segments(
@@ -873,6 +991,20 @@ def extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
 def contour_based_matching(
     pre_graph_labeled_segs, post_graph_labeled_segs, iou_threshold=0.3
 ):
+    """
+    Uses the contour-based method to find the corresponding vessel segments between the pre and post labeled vessel segmentations.
+    It uses the intersection over union (IoU) to find the correspondences between the segments.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        iou_threshold (float, optional): The IoU threshold to determine if two segments are matched. Defaults to 0.3.
+
+    Returns:
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
+
     pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
     post_graph_unique_segs = np.unique(post_graph_labeled_segs)
 
@@ -965,6 +1097,19 @@ def contour_based_matching(
 def pixel_wise_based_matching(
     pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels
 ):
+    """
+    Uses the matched pixels (pixel-wise mask) and the labeled segments to find the corresponding segments between the pre and post segmentations.
+    This is defined based on the mask coverage of each segment.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        matched_pixels (np.ndarray): The matched pixels between the pre and post segmentations.
+
+    Returns:
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
     pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
     post_graph_unique_segs = np.unique(post_graph_labeled_segs)
 
