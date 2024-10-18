@@ -775,6 +775,15 @@ def get_image_pairs(in_img_path: str, in_segm_path: str):
     return image_path_dict
 
 
+def get_image_pair_for_patient(in_img_path: str, in_segm_path: str):
+    logger.info("Loading image pair information")
+    patid = str(Path(in_img_path).stem)
+    in_img_path = str(Path(in_img_path).parent)
+    in_segm_path = str(Path(in_segm_path).parent)
+    patient_dict = get_paths_for_patient(in_img_path, in_segm_path, patid)
+    return patid, patient_dict
+
+
 def get_paths_for_patient(in_img_path: str, in_segm_path: str, patid: str):
     """
     Retrieves the paths for the pre and post-EVT images and segmentations for a specific patient.
@@ -1298,6 +1307,128 @@ def save_image(
     plt.savefig(filename, dpi=dpi, bbox_inches="tight", pad_inches=0)
 
 
+def process_new_patient(
+    pat_id: str, paths: dict, input_format: str, pixel_wise: bool = True
+):
+    logger.info(f"Processing new patient {pat_id}")
+    images = {}
+    images["pre"] = sift.load_img(paths["pre"])
+    images["post"] = sift.load_img(paths["post"])
+    # 1. Perform registration
+    preEVT, postEVT = prepare_images(images)
+    transformation, matches = sift_matching(preEVT, postEVT)
+    if not matches:
+        logger.info("SIFT has no matches, continuing...")
+        return False
+
+    # 2. Segmentation
+    segm_output_folder = "Outputs/test"
+    feat_map_pre_post = generate_segmentations(segm_output_folder, paths, input_format)
+    # Plot the feature maps of one seq for reference (Optional)
+    # predict.display_feature_maps(feat_map_pre_post)
+    # The list contains two maps, where pre-post are first-second
+    # The maps have a torch tensor format
+
+    # Load generated segmentations and map them to the pre and post images
+    segm_images = sklt.load_images(segm_output_folder)
+    segm_pre_post = []
+    for segm in segm_images:
+        if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+            if Path(segm).stem.rsplit("_", 1)[0] == Path(paths["pre"]).stem:
+                segm_pre_post.insert(0, sift.load_img(segm))
+            else:
+                segm_pre_post.append(sift.load_img(segm))
+
+    # Check if the transformation quality is better than the original
+    try:
+        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+            segm_pre_post, transformation, preEVT, postEVT
+        )
+    except ValueError:
+        transform_failed = True
+        tr_postEVT = postEVT
+        return False
+
+    save_overlayed("Outputs/overlayed", pat_id, "", preEVT, tr_postEVT)
+
+    matched_pixels = pixel_wise_method(segm_pre_post, vis=False) if pixel_wise else []
+
+    if transform_failed:
+        return False
+
+    # 2. Skeletonization
+
+    logger.info(f"Skeletonizing")
+
+    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+    # 3. Create Graphs and Extract labeled segments
+
+    logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+    )
+
+    # 4. Iteratively compare segments and identify correspondence
+    logger.info("Performing segment correspondence matching.")
+    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+        find_correspondences(
+            pre_graph_labeled_segs,
+            post_graph_labeled_segs,
+            matched_pixels,
+            pixel_wise,
+        )
+    )
+
+    save_labels(
+        "Outputs/results",
+        pat_id,
+        "",
+        preEVT,
+        tr_postEVT,
+        pre_labels_rgb,
+        post_labels_rgb,
+    )
+    print(f"Patient {pat_id} completed")
+
+    return True
+
+
+def generate_segmentations(segm_output_folder: str, paths: dict, input_format: str):
+    segm_output_folder = "Outputs/test"
+    for path in Path(segm_output_folder).glob("*"):
+        if path.is_file():
+            path.unlink()
+
+    feat_map_pre_post = []
+    feat_map_pre_post.append(
+        predict.run_predict(
+            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+            in_img_path=paths["pre"],
+            out_img_path=segm_output_folder,
+            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+            input_type="sequence",
+            input_format=input_format,
+            label_type="av",
+            amp=True,
+        )
+    )
+    feat_map_pre_post.append(
+        predict.run_predict(
+            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+            in_img_path=paths["post"],
+            out_img_path=segm_output_folder,
+            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+            input_type="sequence",
+            input_format=input_format,
+            label_type="av",
+            amp=True,
+        )
+    )
+    return feat_map_pre_post
+
+
 def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
     """
     Processes a patient's data by performing registration, segmentation, skeletonization, graph creation, and segment correspondence matching.
@@ -1417,6 +1548,79 @@ def prepare_images(images: dict) -> tuple[np.ndarray, np.ndarray]:
     return preEVT, postEVT
 
 
+def generate_data_for_visual_evaluation(
+    in_img_path: str, in_segm_path: str, pixel_wise: bool = True
+):
+    """
+    Generates data for visual evaluation of the sift based pixel wise matching method.
+    Takes as input a nifti directory and a segmentation directory created by the prepare_data.py script (for now).
+
+    Args:
+        in_img_path (str): The path to the pre-EVT images.
+        in_segm_path (str): The path to the segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+    """
+    # Load all input images into a dictionary for processing
+    image_path_dictionary = get_image_pairs(
+        in_img_path=in_img_path, in_segm_path=in_segm_path
+    )
+    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+    processed_cases = os.listdir("cases")
+    image_path_dictionary = {
+        key: image_path_dictionary[key]
+        for key in image_path_dictionary
+        if key not in processed_cases
+    }
+    for patid, paths in image_path_dictionary.items():
+        logger.info(f"{patid:=^20}")
+        patient_success = process_patient(patid, paths, pixel_wise)
+        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
+    df_successes.to_csv("successes.csv")
+    logger.info("Data for visual evaluation generated.")
+    return
+
+
+def single_patient_visual_evaluation(
+    in_img_path: str | None,
+    in_segm_path: str | None,
+    in_pre_path: str | None,
+    in_post_path: str | None,
+    input_format: str,
+    pixel_wise: bool = True,
+):
+    """
+    Performs visual evaluation of the sift based pixel wise matching method for a single patient.
+    The input can be provided in two ways:
+    1. in_img_path and in_segm_path: Nifti and segmentation directories of a patient (e.g Niftis/Patient_1 and Segmentations/Patient_1).
+    2. in_pre_path and in_post_path: Paths to the pre-EVT and post-EVT sequences (Nifti | Dicom).
+
+    Args:
+        in_img_path (str | None): The Nifti directory path for the pre-EVT and post-EVT sequences.
+        in_segm_path (str | None): The segmentation directory path for the pre-EVT and post-EVT sequences.
+        in_pre_path (str | None): The path to the pre-EVT sequence.
+        in_post_path (str | None): The path to the post-EVT sequence.
+    """
+    if in_img_path != None and in_segm_path != None:
+        patid, image_path_dictionary = get_image_pair_for_patient(
+            in_img_path, in_segm_path
+        )
+        df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+        print(image_path_dictionary)
+        # for paths in image_path_dictionary.values():
+        logger.info(f"{patid:=^20}")
+        patient_success = process_patient(patid, image_path_dictionary, pixel_wise)
+        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
+        print(df_successes)
+    elif in_pre_path != None and in_post_path != None:
+        patid = str(Path(in_pre_path).parents[1].stem)
+        paths = {"pre": in_pre_path, "post": in_post_path}
+        patient_success = process_new_patient(patid, paths, input_format, pixel_wise)
+        print(patient_success)
+    else:
+        raise "Either in_img_path and in_segm_path or in_pre_path and in_post_path must be provided."
+    logger.info(f"Patient {patid} processing completed.")
+
+
 def setup_logging():
     log_filepath = "log/{}.log".format(Path(__file__).stem)
     if not os.path.isdir("log"):
@@ -1438,214 +1642,33 @@ def main(
     in_pre_path,
     in_post_path,
     input_format="nifti",
-    load_segs=False,
+    input_type="single",
     pixel_wise=False,
     eval=False,
 ):
     setup_logging()
-
-    # Temporary only run this
-    # Load all input images into a dictionary for processing
-    image_path_dictionary = get_image_pairs(
-        in_img_path=in_img_path, in_segm_path=in_segm_path
-    )
-    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
-    processed_cases = os.listdir("cases")
-    image_path_dictionary = {
-        key: image_path_dictionary[key]
-        for key in image_path_dictionary
-        if key not in processed_cases
-    }
-    for patid, paths in image_path_dictionary.items():
-        logger.info(f"{patid:=^20}")
-        patient_success = process_patient(patid, paths, pixel_wise)
-        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
-    df_successes.to_csv("successes.csv")
-    return
 
     if eval:
         ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
         evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
         return
 
-    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
-
-    # pat_id = "R0002"
-    # pat_ori = "1"
-    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
-    if in_img_path != None:
-        IMG_DIR_PATH = in_img_path
-        pat_ori = str(Path(IMG_DIR_PATH).stem)
-        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
-        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
-        # Check if list is empty
-        if not images_path:
-            return
-
-        # Load images from paths
-        images = sift.load_pre_post_imgs(images_path)
-
-    elif in_pre_path and in_post_path != None:
-        images = []
-        images.append(sift.load_img(in_pre_path))
-        images.append(sift.load_img(in_post_path))
-    else:
-        raise "One of two possible inputs must be provided."
-
-    # patient_results = {"patid": pat_id, "ap": True, "lat": True}
-
-    OrigpreEVT = images[0]
-    OrigpostEVT = images[1]
-
-    preEVT = sift.remove_text_and_border(OrigpreEVT)
-    postEVT = sift.remove_text_and_border(OrigpostEVT)
-
-    transformation, matches = sift_matching(preEVT, postEVT)
-    if not matches:
-        logger.info("SIFT has no matches, continuing...")
-        # patient_results[side] = False
-        # continue the loop
-
-    # 2. Segmentation
-
-    if load_segs and in_img_path != None:
-        # If True we assume that the feature maps will also be loaded
-        IMG_MIN_DIR_PATH = (
-            "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
-        )
-        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
-    else:
-        # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
-        segm_output_folder = "Outputs/test"
-        # Clear the segmentation output folder for every run
-        # for root, dirs, files in os.walk(segm_output_folder):
-        #     for f in files:
-        #       os.remove(f)
-        for path in Path(segm_output_folder).glob("*"):
-            if path.is_file():
-                path.unlink()
-                # print(path)
-
-        # Returns the sequence feature maps from the chosen layer (feature extraction)
-        # In our case the chosen layer is "up4" form the model
-        # Doesn't work with mrclean dir structure yet.
-        # Need to change this to make sure pre and post are not reversed
-        # Feature maps not needed for the sift-baseline method. This still saves segmentations.
-        # feat_map_pre_post = predict.run_predict(
-        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-        #     in_img_path=IMG_DIR_PATH,
-        #     out_img_path=segm_output_folder,
-        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-        #     input_type="sequence",
-        #     input_format="nifti",
-        #     label_type="av",
-        #     amp=True,
-        # )
-        # On the fly segmentation now only works if you provide pre-post inputs.
-        # Otherwise there is no way to know which is pre and post using a directory as input
-        feat_map_pre_post = []
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_pre_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
+    match input_type:
+        case "single":
+            single_patient_visual_evaluation(
+                in_img_path,
+                in_segm_path,
+                in_pre_path,
+                in_post_path,
+                input_format,
+                pixel_wise,
             )
-        )
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_post_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
-            )
-        )
+        case "multiple":
+            generate_data_for_visual_evaluation(in_img_path, in_segm_path, pixel_wise)
+        case _:
+            raise "Input type must be single or multiple."
 
-        # Plot the feature maps of one seq for reference (Optional)
-        # predict.display_feature_maps(feat_map_pre_post)
-        # The list contains two maps, where pre-post are first-second
-        # The maps have a torch tensor format
-        IMG_SEQ_DIR_PATH = segm_output_folder
-
-    # segm_images = load_images(IMG_MIN_DIR_PATH)
-    segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
-
-    # Find corresponding pre and post images from the segmentations and feat maps
-    segm_pre_post = []
-    # If data was prepared we check for this
-    if in_img_path != None:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-    else:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-
-    # Check if the transformation quality is better than the original
-
-    try:
-        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
-            segm_pre_post, transformation, preEVT, postEVT
-        )
-    except ValueError:
-        transform_failed = True
-        tr_postEVT = postEVT
-        return {"patid": pat_id, "ap": False, "lat": False}
-
-    # Careful with this since arrays are mutable
-    # Used final_segm_post in order to plot original and transformed post
-    # After the plotting this variable is not necessary anymore.
-    # segm_pre_post[1] = final_segm_post
-
-    if pixel_wise:
-        matched_pixels = pixel_wise_method(segm_pre_post, vis=True)
-        # return
-
-    # 3. Skeletonization
-
-    logger.info(f"Skeletonizing")
-
-    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
-
-    # 4. Create Graphs and Extract labeled segments
-
-    logger.info(f"Generating Graphs and Extracting Labeled Segments")
-
-    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
-        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
-    )
-    # fig, axs = plt.subplots(1, 3)
-    # axs[0].imshow(labels_rgb1)
-    # axs[1].imshow(labels_rgb2)
-    # axs[2].imshow(labels_rgb1)
-    # axs[2].imshow(labels_rgb2, alpha=0.5)
-    # for a in axs:
-    #     a.axis("off")
-    # plt.tight_layout()
-    # plt.show()
-
-    # 6. Iteratively compare segments and identify correspondence
-    logger.info("Performing segment correspondence matching.")
-    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
-        find_correspondences(
-            pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels, pixel_wise
-        )
-    )
+    return
 
     visualize_results(
         segm_pre_post[0], segm_pre_post[1], pre_labels_rgb, post_labels_rgb
@@ -1663,7 +1686,7 @@ def get_args():
     parser.add_argument('--in_pre_path','-pre',default=None, help='Path of pre-DSA sequence.')
     parser.add_argument('--in_post_path','-post',default=None, help='Path of post-DSA sequence.')
     parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
-    parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations.")
+    parser.add_argument('--input-type','-t',default='single',help='Input type - single or multiple patients')
     parser.add_argument("--pixel-wise",action="store_true",default=False,help="Use the pixel wise method for matching.")
     parser.add_argument("--eval",action="store_true",default=False,help="Evaluate the method.")
 #fmt:on
