@@ -223,7 +223,17 @@ def map_labels_to_segmentations(
     return labels
 
 
-def pixel_wise_method(segm_pre_post, vis=False) -> np.ndarray:
+def pixel_wise_method(segm_pre_post: list[np.ndarray], vis=False) -> np.ndarray:
+    """
+    Matches the pre and post segmentations using a pixel-wise method.
+
+    Args:
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+        vis (bool, optional): Whether to visualize the segmentations. Defaults to False.
+
+    Returns:
+        np.ndarray: The new mask with the matched segmentations.
+    """
     pre_one_idxs = np.nonzero(segm_pre_post[0] == 1)
     final_results = np.zeros(segm_pre_post[0].shape)
     for x, y in zip(pre_one_idxs[0], pre_one_idxs[1]):
@@ -749,7 +759,7 @@ def get_image_pairs(in_img_path: str, in_segm_path: str):
     """
     This should return a list of pairs of pre- and post- images and their associated segmentations for both the artery and total segmentations
 
-    Note: for now we only store the first element in each list
+    Note: for now we only store the first element in each list (Is this correct?)
 
     """
     logger.info("Loading image pair information")
@@ -766,6 +776,17 @@ def get_image_pairs(in_img_path: str, in_segm_path: str):
 
 
 def get_paths_for_patient(in_img_path: str, in_segm_path: str, patid: str):
+    """
+    Retrieves the paths for the pre and post-EVT images and segmentations for a specific patient.
+
+    Args:
+        in_img_path (str): The path to the pre and post-EVT images.
+        in_segm_path (str): The path to the segmentations.
+        patid (str): The patient ID.
+
+    Returns:
+        dict[dict...[list[str]]]: A dictionary containing the paths for the pre and post-EVT images and segmentations.
+    """
     niftis_ap = [
         f
         for f in glob(os.path.join(in_img_path, patid, "0", "**"), recursive=True)
@@ -922,8 +943,19 @@ def check_transform(
     return transform_failed, tr_postEVT, final_segm_post
 
 
-def generate_skeletons(segm_pre_post: list[np.ndarray]):
-    # Perform skeletonization
+def generate_skeletons(
+    segm_pre_post: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """
+    Generates the skeletons of the pre and post segmentations.
+
+    Args:
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+
+    Returns:
+        skeleton_images (list[np.ndarray]): The skeletonized images.
+        distance_transform (list[np.ndarray]): The distance transform of the skeletonized images.
+    """
     skeleton_images, distance_transform = sklt.get_skeletons(
         segm_pre_post,
         method="lee",
@@ -935,16 +967,16 @@ def generate_skeletons(segm_pre_post: list[np.ndarray]):
 
 
 def extract_labeled_segments(
-    skeleton_images: np.ndarray,
-    distance_transform: np.ndarray,
+    skeleton_images: list[np.ndarray],
+    distance_transform: list[np.ndarray],
     segm_pre_post: list[np.ndarray],
 ):
     """
     Extracts the labeled segments from the pre and post segmentation skeletons and generates the labeled segments for the complete segmentations.
 
     Args:
-        skeleton_images (np.ndarray): The skeletonized images.
-        distance_transform (np.ndarray): The distance transform of the skeletonized images.
+        skeleton_images (list[np.ndarray]): The skeletonized images.
+        distance_transform (list[np.ndarray]): The distance transform of the skeletonized images.
         segm_pre_post (list[np.ndarray]): The pre and post segmentations.
 
     Returns:
@@ -954,7 +986,7 @@ def extract_labeled_segments(
         post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
     """
 
-    # 4. Create Graphs and Extract labeled segments
+    # 1. Create Graphs and Extract labeled segments
     skeleton_points = sklt.find_centerlines(skeleton_images[0])
     pre_graph, pre_graph_labeled_skltns = extract_segments(
         skeleton_images[0],
@@ -972,7 +1004,7 @@ def extract_labeled_segments(
         verbose=True,
     )
 
-    # 5. Map the labeled segments to the complete segmentations
+    # 2. Map the labeled segments to the complete segmentations
     pre_graph_labeled_segs = map_labels_to_segmentations(
         segm_pre_post[0], distance_transform[0], pre_graph_labeled_skltns
     )
@@ -1267,6 +1299,17 @@ def save_image(
 
 
 def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
+    """
+    Processes a patient's data by performing registration, segmentation, skeletonization, graph creation, and segment correspondence matching.
+
+    Args:
+        pat_id (str): The patient ID.
+        paths (dict): A dictionary containing paths to the images and segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+
+    Returns:
+        dict: A dictionary containing the results of the processing.
+    """
     # replacing the image path with the loaded images
     logger.info("Loading image paths")
     images_and_segmentations = load_images_from_paths(paths)
@@ -1285,6 +1328,20 @@ def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
 def process_side(
     pat_id: str, side: str, images: dict, segmentations: dict, pixel_wise: bool = True
 ) -> bool:
+    """
+    Processes a patient's data for a specific side (ap or lat).
+
+    Args:
+        pat_id (str): The patient ID.
+        side (str): The side to process (ap or lat).
+        images (dict): A dictionary containing the images.
+        segmentations (dict): A dictionary containing the segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+
+    Returns:
+        bool: True if the processing was successful, False otherwise.
+    """
+    # 1. Perform registration
     preEVT, postEVT = prepare_images(images[side]["full"])
     transformation, matches = sift_matching(preEVT, postEVT)
     if not matches:
@@ -1312,13 +1369,13 @@ def process_side(
     if transform_failed:
         return False
 
-    # 3. Skeletonization
+    # 2. Skeletonization
 
     logger.info(f"Skeletonizing {side}")
 
     skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
 
-    # 4. Create Graphs and Extract labeled segments
+    # 3. Create Graphs and Extract labeled segments
 
     logger.info(f"Generating Graphs and Extracting Labeled Segments")
 
@@ -1326,7 +1383,7 @@ def process_side(
         extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
     )
 
-    # 6. Iteratively compare segments and identify correspondence
+    # 4. Iteratively compare segments and identify correspondence
     logger.info("Performing segment correspondence matching.")
     pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
         find_correspondences(
@@ -1346,6 +1403,15 @@ def process_side(
 
 
 def prepare_images(images: dict) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Prepares the pre and post-EVT images by removing text and borders.
+
+    Args:
+        images (dict): A dictionary containing the pre and post-EVT images.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The pre and post-EVT images.
+    """
     preEVT = sift.remove_text_and_border(images["pre"])
     postEVT = sift.remove_text_and_border(images["post"])
     return preEVT, postEVT
