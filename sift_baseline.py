@@ -6,6 +6,7 @@ from pathlib import Path
 from glob import glob
 import json
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.widgets import Button
@@ -30,7 +31,26 @@ from Segmentation import predict
 logger = logging.getLogger(__name__)
 
 
-def create_graph(skeleton_img, skeleton_pts, dst_transform, g_name=None, verbose=True):
+def create_graph(
+    skeleton_img: np.ndarray,
+    skeleton_pts: np.ndarray,
+    dst_transform: np.ndarray,
+    g_name=None,
+    verbose=True,
+):
+    """
+    Creates a graph from the skeleton image and skeleton points.
+
+    Args:
+        skeleton_img (np.ndarray): The skeleton image.
+        skeleton_pts (np.ndarray): The skeleton points.
+        dst_transform (np.ndarray): The distance transform of the skeleton image.
+        g_name (str, optional): The name of the graph. Defaults to None.
+        verbose (bool, optional): Whether to print the graph information. Defaults to True.
+
+    Returns:
+        sk_graph (ig.Graph): The graph generated from the skeleton.
+    """
     if not g_name:
         g_name = "Temp"
 
@@ -60,6 +80,17 @@ def create_graph(skeleton_img, skeleton_pts, dst_transform, g_name=None, verbose
 
 
 def get_ordered_segment(graph, segment, segm_ids) -> list:
+    """
+    Extracts the ordered segment from the graph.
+
+    Args:
+        graph (ig.Graph): The graph.
+        segment (list): The segment.
+        segm_ids (list): The segment node ids.
+
+    Returns:
+        point_list (list): The ordered segment.
+    """
     # Only consider large segment paths
     if len(segment) == 1:
         return []
@@ -81,7 +112,6 @@ def get_ordered_segment(graph, segment, segm_ids) -> list:
             # Add the additional endpoint neighbors of the original graph to the list
             # if there exist any
             endpoint_neighbors = [point_list[1]] + [point_list[-2]]
-            # print(endpoint_neighbors)
             for i in range(2):
                 # FYI. graph.vs[point_list[-i]].neighbors(): returns a node object
                 for nb in graph.neighbors(point_list[-i]):
@@ -97,9 +127,30 @@ def get_ordered_segment(graph, segment, segm_ids) -> list:
 
 
 def extract_segments(
-    skeleton_img, skeleton_pts, dst_transform, g_name=None, vis=False, verbose=True
+    skeleton_img: np.ndarray,
+    skeleton_pts: np.ndarray,
+    dst_transform: np.ndarray,
+    g_name=None,
+    vis=False,
+    verbose=True,
 ):
+    """
+    Creates a graph from the skeleton image and skeleton points.
+    Simplifies the graph and filters unwanted edges and nodes.
+    Finally extracts the labeled segments from the skeleton image.
 
+    Args:
+        skeleton_img (np.ndarray): The skeleton image.
+        skeleton_pts (np.ndarray): The skeleton points.
+        dst_transform (np.ndarray): The distance transform of the skeleton image.
+        g_name (str, optional): The name of the graph. Defaults to None.
+        vis (bool, optional): Whether to visualize the labeled segments. Defaults to False.
+        verbose (bool, optional): Whether to print the graph information. Defaults to True.
+
+    Returns:
+        sk_graph (ig.Graph): The graph generated from the skeleton.
+        labeled_segments (np.ndarray): The labeled skeleton vessel segments.
+    """
     # Construct graph
     sk_graph = create_graph(
         skeleton_img, skeleton_pts, dst_transform, g_name=g_name, verbose=verbose
@@ -123,7 +174,6 @@ def extract_segments(
         x_coords = list(map(int, point_list["x"]))  # floor
         y_coords = list(map(int, point_list["y"]))
         for pt in zip(x_coords, y_coords):
-            # print(pt)
             # Add its index label to the pt positions
             labeled_segments[pt[1], pt[0]] = label_idx
 
@@ -140,8 +190,22 @@ def extract_segments(
     return sk_graph, labeled_segments
 
 
-def map_labels_to_segmentations(segm, dtf, labeled_segm, vis=False):
-    # Apply the watershed algorithm using the labeled skeleton as markers
+def map_labels_to_segmentations(
+    segm: np.ndarray, dtf: np.ndarray, labeled_segm: np.ndarray, vis=False
+):
+    """
+    Maps the labeled skeleton segments to the complete segmentations.
+    Apply the watershed algorithm using the labeled skeleton as markers
+
+    Args:
+        segm (np.ndarray): The complete segmentation.
+        dtf (np.ndarray): The distance transform of the complete segmentation.
+        labeled_segm (np.ndarray): The labeled segments.
+        vis (bool, optional): Whether to visualize the labeled segments. Defaults to False.
+
+    Returns:
+        labels (np.ndarray): The labeled segmentations.
+    """
     # Int cast for issue with watershed
     labeled_segm = labeled_segm.astype(int)
     labels = watershed(-dtf, markers=labeled_segm, mask=segm)
@@ -159,10 +223,19 @@ def map_labels_to_segmentations(segm, dtf, labeled_segm, vis=False):
     return labels
 
 
-def pixel_wise_method(segm_pre_post, vis=False) -> np.ndarray:
+def pixel_wise_method(segm_pre_post: list[np.ndarray], vis=False) -> np.ndarray:
+    """
+    Matches the pre and post segmentations using a pixel-wise method.
+
+    Args:
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+        vis (bool, optional): Whether to visualize the segmentations. Defaults to False.
+
+    Returns:
+        np.ndarray: The new mask with the matched segmentations.
+    """
     pre_one_idxs = np.nonzero(segm_pre_post[0] == 1)
     final_results = np.zeros(segm_pre_post[0].shape)
-
     for x, y in zip(pre_one_idxs[0], pre_one_idxs[1]):
         # First check if the pixel itself corresponds
         if segm_pre_post[1][x, y] == 1:
@@ -664,7 +737,6 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     segm_pre_rgb = np.dstack((segm_pre,) * 3)
     segm_post_rgb = np.dstack((segm_post,) * 3)
 
-    # print(pre_labels_rgb[:5, :5, :])
     black_pixels_mask = (lbls_pre == [0, 0, 0]).all(axis=-1)
     pre_labels_rgb_overlayed = np.where(
         black_pixels_mask[..., None], segm_pre_rgb, lbls_pre
@@ -683,199 +755,216 @@ def visualize_results(segm_pre, segm_post, lbls_pre, lbls_post):
     plt.show()
 
 
-def main(
-    in_img_path,
-    in_segm_path,
-    in_pre_path,
-    in_post_path,
-    input_format="nifti",
-    load_segs=False,
-    pixel_wise=False,
-    eval=False,
-):
-    log_filepath = "log/{}.log".format(Path(__file__).stem)
-    if not os.path.isdir("log"):
-        os.mkdir("log")
-    logging.basicConfig(
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        handlers=[
-            logging.FileHandler(log_filepath, mode="w"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
+def get_image_pairs(in_img_path: str, in_segm_path: str):
+    """
+    This should return a list of pairs of pre- and post- images and their associated segmentations for both the artery and total segmentations
 
-    if eval:
-        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
-        evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
-        return
+    Note: for now we only store the first element in each list (Is this correct?)
 
-    # pat_id = "R0002"
-    # pat_ori = "1"
-    # IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
-    if in_img_path != None:
-        IMG_DIR_PATH = in_img_path
-        pat_ori = str(Path(IMG_DIR_PATH).stem)
-        pat_id = str(Path(IMG_DIR_PATH).parent.stem)
-        images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
-        # Check if list is empty
-        if not images_path:
-            return
+    """
+    logger.info("Loading image pair information")
+    image_path_dict = {}
+    patient_images = os.listdir(in_img_path)
+    patient_segms = os.listdir(in_segm_path)
+    selected_patients = set(patient_images).intersection(patient_segms)
 
-        # Load images from paths
-        images = sift.load_pre_post_imgs(images_path)
+    for patid in selected_patients:
+        patient_dict = get_paths_for_patient(in_img_path, in_segm_path, patid)
+        if patient_dict:
+            image_path_dict[patid] = patient_dict
+    return image_path_dict
 
-    elif in_pre_path and in_post_path != None:
-        images = []
-        images.append(sift.load_img(in_pre_path))
-        images.append(sift.load_img(in_post_path))
+
+def get_image_pair_for_patient(in_img_path: str, in_segm_path: str):
+    logger.info("Loading image pair information")
+    patid = str(Path(in_img_path).stem)
+    in_img_path = str(Path(in_img_path).parent)
+    in_segm_path = str(Path(in_segm_path).parent)
+    patient_dict = get_paths_for_patient(in_img_path, in_segm_path, patid)
+    return patid, patient_dict
+
+
+def get_paths_for_patient(in_img_path: str, in_segm_path: str, patid: str):
+    """
+    Retrieves the paths for the pre and post-EVT images and segmentations for a specific patient.
+
+    Args:
+        in_img_path (str): The path to the pre and post-EVT images.
+        in_segm_path (str): The path to the segmentations.
+        patid (str): The patient ID.
+
+    Returns:
+        dict[dict...[list[str]]]: A dictionary containing the paths for the pre and post-EVT images and segmentations.
+    """
+    niftis_ap = [
+        f
+        for f in glob(os.path.join(in_img_path, patid, "0", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    niftis_lat = [
+        f
+        for f in glob(os.path.join(in_img_path, patid, "1", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    niftis = {"ap": niftis_ap, "lat": niftis_lat}
+    segms_ap = [
+        f
+        for f in glob(os.path.join(in_segm_path, patid, "0", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    segms_lat = [
+        f
+        for f in glob(os.path.join(in_segm_path, patid, "1", "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
+    segms = {"ap": segms_ap, "lat": segms_lat}
+    patient_dict = {}
+    patient_segms_dict = {}
+    for side in ["ap", "lat"]:
+        # art_side_dict = {}
+        full_side_dict = {}
+        segm_art_side_dict = {}
+        segm_vein_side_dict = {}
+        for setting in ["pre", "post"]:
+            filename_ending = f"{setting}"
+            try:
+                # art_side_dict[filename_ending] = [
+                #     f for f in niftis[side] if filename_ending in f and "art" in f
+                # ][0]
+                full_side_dict[filename_ending] = [
+                    f for f in niftis[side] if filename_ending in f and "art" not in f
+                ][0]
+                segm_art_side_dict[filename_ending] = [
+                    f for f in segms[side] if filename_ending in f and "art" in f
+                ][0]
+                segm_vein_side_dict[filename_ending] = [
+                    f for f in segms[side] if filename_ending in f and "vein" in f
+                ][0]
+            except IndexError as e:
+                logger.warning(f"One of the files is missing, skipping case {patid}")
+                logger.warning(e)
+                return {}
+        segm_side_dict = {}
+        segm_side_dict["art"] = segm_art_side_dict
+        segm_side_dict["vein"] = segm_vein_side_dict
+        side_dict = {}
+        # side_dict["art"] = art_side_dict
+        side_dict["full"] = full_side_dict
+        patient_dict[side] = side_dict
+        patient_segms_dict[side] = segm_side_dict
+    return {"nifti": patient_dict, "segm": patient_segms_dict}
+
+
+def load_images_from_paths(data):
+    """
+    Recursively traverses a nested dictionary and replaces file paths with images.
+
+    Args:
+        data (dict): The dictionary containing file paths at the leaf nodes.
+
+    Returns:
+        The modified dictionary with images replacing paths.
+    """
+    if isinstance(data, dict):
+        # Traverse each key-value pair in the dictionary
+        return {key: load_images_from_paths(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        # If it's a list, apply the function to each element
+        return [load_images_from_paths(item) for item in data]
+    elif isinstance(data, str) and os.path.isfile(data):
+        # If it's a string and a valid file path, load the image
+        try:
+            img = sift.load_img(data)
+            return img  # Return the image instead of the path
+        except Exception as e:
+            print(f"Failed to load image from {data}: {e}")
+            return data  # Return the original path if the image fails to load
     else:
-        raise "One of two possible inputs must be provided."
+        # If it's neither a dictionary, list, nor valid path, return it as is
+        return data
 
-    OrigpreEVT = images[0]
-    OrigpostEVT = images[1]
 
-    # Remove unwanted text that comes with dicoms
-    notextpreEVT, notextpostEVT, locations = sift.remove_unwanted_text(
-        OrigpreEVT, OrigpostEVT
-    )
-    # Remove unwanted black borders if they exist
-    preEVT, postEVT = sift.remove_borders(notextpreEVT, notextpostEVT)
+def sift_matching(preEVT: np.ndarray, postEVT: np.ndarray):
+    """
+    Uses SIFT to generate keypoints and descriptors from the pre and post-EVT images and finds the matches between the keypoints.
+    It then calculates the transformation matrix and returns it.
 
+    Args:
+        preEVT (np.ndarray): The pre-EVT image.
+        postEVT (np.ndarray): The post-EVT image.
+
+    Returns:
+        transformation (np.ndarray): The transformation matrix.
+        matches (np.ndarray): The matches between the pre and post-EVT images.
+    """
     feature_extractor = "sift"  # choose sift or orb
     prekp, predsc, postkp, postdsc = sift.feat_kp_dscr(
         preEVT, postEVT, feat_extr=feature_extractor
     )
     matches = sift.find_feat_matches(predsc, postdsc, feat_extr=feature_extractor)
+    if not matches:
+        return None, None
     # sift.plot_matches(preEVT, prekp, postEVT, postkp, matches,feat_extr=feature_extractor)
     transformation = sift.calculate_transform(
         prekp, postkp, matches, feat_extr=feature_extractor
     )
+    return transformation, matches
 
-    # 2. Segmentation
 
-    if load_segs and in_img_path != None:
-        # If True we assume that the feature maps will also be loaded
-        IMG_MIN_DIR_PATH = (
-            "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
-        )
-        # IMG_SEQ_DIR_PATH = (
-        #     "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
-        # )
-        IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
-    else:
-        # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
-        segm_output_folder = "Outputs/test"
-        # Clear the segmentation output folder for every run
-        # for root, dirs, files in os.walk(segm_output_folder):
-        #     for f in files:
-        #       os.remove(f)
-        for path in Path(segm_output_folder).glob("*"):
-            if path.is_file():
-                path.unlink()
-                # print(path)
+def check_transform(
+    segmentation_pair: list[np.ndarray],
+    transformation: np.ndarray,
+    preEVT: np.ndarray,
+    postEVT: np.ndarray,
+):
+    """
+    Checks if the transformation is better than the original.
 
-        # Returns the sequence feature maps from the chosen layer (feature extraction)
-        # In our case the chosen layer is "up4" form the model
-        # Doesn't work with mrclean dir structure yet.
-        # Need to change this to make sure pre and post are not reversed
-        # Feature maps not needed for the sift-baseline method. This still saves segmentations.
-        # feat_map_pre_post = predict.run_predict(
-        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-        #     in_img_path=IMG_DIR_PATH,
-        #     out_img_path=segm_output_folder,
-        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-        #     input_type="sequence",
-        #     input_format="nifti",
-        #     label_type="av",
-        #     amp=True,
-        # )
-        # On the fly segmentation now only works if you provide pre-post inputs.
-        # Otherwise there is no way to know which is pre and post using a directory as input
-        feat_map_pre_post = []
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_pre_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
-            )
-        )
-        feat_map_pre_post.append(
-            predict.run_predict(
-                # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-                in_img_path=in_post_path,
-                out_img_path=segm_output_folder,
-                model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-                input_type="sequence",
-                input_format=input_format,
-                label_type="av",
-                amp=True,
-            )
-        )
+    Args:
+        segmentation_pair (list[np.ndarray]): The pre and post segmentations.
+        transformation (np.ndarray): The transformation matrix.
+        preEVT (np.ndarray): The pre-EVT image.
+        postEVT (np.ndarray): The post-EVT image.
 
-        # Plot the feature maps of one seq for reference (Optional)
-        # predict.display_feature_maps(feat_map_pre_post)
-        # The list contains two maps, where pre-post are first-second
-        # The maps have a torch tensor format
-        IMG_SEQ_DIR_PATH = segm_output_folder
-
-    # segm_images = load_images(IMG_MIN_DIR_PATH)
-    segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
-
-    # Find corresponding pre and post images from the segmentations and feat maps
-    segm_pre_post = []
-    # If data was prepared we check for this
-    if in_img_path != None:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 2)[1] == "pre":
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-    else:
-        for segm in segm_images:
-            if Path(segm).stem.rsplit("_", 1)[1] == "artery":
-                if Path(segm).stem.rsplit("_", 1)[0] == Path(in_pre_path).stem:
-                    segm_pre_post.insert(0, sift.load_img(segm))
-                else:
-                    segm_pre_post.append(sift.load_img(segm))
-
+    Returns:
+        transform_failed (bool): True if the transformation is worse than the original, False otherwise.
+        tr_postEVT (np.ndarray): The transformed (or not) post-EVT image.
+        final_segm_post (np.ndarray): The tranformed (or not) post-EVT segmentation.
+    """
+    transform_failed = False
     # Check if the transformation quality is better than the original
-    if not sift.check_transform(transformation, preEVT, postEVT, verbose=False):
+    if not sift.check_transform(transformation, preEVT, postEVT, verbose=True):
         # The transformation is worse than the original
-        print("Using the original post-EVT image")
-        final_segm_post = segm_pre_post[1]
+        print("Using the original post-EVT image, registering as failed transform")
+        final_segm_post = segmentation_pair[1]
         tr_postEVT = postEVT
+        transform_failed = True
     else:
-        tr_postEVT = sift.apply_transformation(
-            transformation, preEVT, postEVT, ret=True, vis=False
-        )
-        # Scale transformation matrix for segmentation image size
+        tr_postEVT = sift.apply_transformation_v2(transformation, postEVT)
+        # # # Scale transformation matrix for segmentation image size
         scale_matrix = np.array([[0.5, 0, 0], [0, 0.5, 0], [0, 0, 1]])
         transformation = scale_matrix @ transformation @ np.linalg.inv(scale_matrix)
         # Warp and display the segmentations
-        final_segm_post = sift.apply_transformation(
-            transformation, segm_pre_post[0], segm_pre_post[1], ret=True, vis=False
+        final_segm_post = sift.apply_transformation_v2(
+            transformation, segmentation_pair[1]
         )
 
-    # Careful with this since arrays are mutable
-    # Used final_segm_post in order to plot original and transformed post
-    # After the plotting this variable is not necessary anymore.
-    segm_pre_post[1] = final_segm_post
+    return transform_failed, tr_postEVT, final_segm_post
 
-    if pixel_wise:
-        matched_pixels = pixel_wise_method(segm_pre_post, vis=True)
-        # return
 
-    # 3. Skeletonization
+def generate_skeletons(
+    segm_pre_post: list[np.ndarray],
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """
+    Generates the skeletons of the pre and post segmentations.
 
-    # Perform skeletonization
+    Args:
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+
+    Returns:
+        skeleton_images (list[np.ndarray]): The skeletonized images.
+        distance_transform (list[np.ndarray]): The distance transform of the skeletonized images.
+    """
     skeleton_images, distance_transform = sklt.get_skeletons(
         segm_pre_post,
         method="lee",
@@ -883,7 +972,30 @@ def main(
     if not skeleton_images:
         return
 
-    # 4. Create Graphs and Extract labeled segments
+    return skeleton_images, distance_transform
+
+
+def extract_labeled_segments(
+    skeleton_images: list[np.ndarray],
+    distance_transform: list[np.ndarray],
+    segm_pre_post: list[np.ndarray],
+):
+    """
+    Extracts the labeled segments from the pre and post segmentation skeletons and generates the labeled segments for the complete segmentations.
+
+    Args:
+        skeleton_images (list[np.ndarray]): The skeletonized images.
+        distance_transform (list[np.ndarray]): The distance transform of the skeletonized images.
+        segm_pre_post (list[np.ndarray]): The pre and post segmentations.
+
+    Returns:
+        pre_graph (np.ndarray): The pre-EVT graph.
+        post_graph (np.ndarray): The post-EVT graph.
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+    """
+
+    # 1. Create Graphs and Extract labeled segments
     skeleton_points = sklt.find_centerlines(skeleton_images[0])
     pre_graph, pre_graph_labeled_skltns = extract_segments(
         skeleton_images[0],
@@ -901,7 +1013,7 @@ def main(
         verbose=True,
     )
 
-    # 5. Map the labeled segments to the complete segmentations
+    # 2. Map the labeled segments to the complete segmentations
     pre_graph_labeled_segs = map_labels_to_segmentations(
         segm_pre_post[0], distance_transform[0], pre_graph_labeled_skltns
     )
@@ -909,140 +1021,654 @@ def main(
         segm_pre_post[1], distance_transform[1], post_graph_labeled_skltns
     )
 
-    labels_rgb1 = label2rgb(pre_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
-    labels_rgb2 = label2rgb(post_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
-    # fig, axs = plt.subplots(1, 3)
-    # axs[0].imshow(labels_rgb1)
-    # axs[1].imshow(labels_rgb2)
-    # axs[2].imshow(labels_rgb1)
-    # axs[2].imshow(labels_rgb2, alpha=0.5)
-    # for a in axs:
-    #     a.axis("off")
-    # plt.tight_layout()
-    # plt.show()
+    labels_rgb_pre = label2rgb(pre_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0])
+    labels_rgb2_post = label2rgb(
+        post_graph_labeled_segs, bg_label=0, bg_color=[0, 0, 0]
+    )
 
-    # 6. Iteratively compare segments and identify correspondence
-    logger.info("Finding segment correspondences.")
+    return pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs
+
+
+def contour_based_matching(
+    pre_graph_labeled_segs, post_graph_labeled_segs, iou_threshold=0.3
+):
+    """
+    Uses the contour-based method to find the corresponding vessel segments between the pre and post labeled vessel segmentations.
+    It uses the intersection over union (IoU) to find the correspondences between the segments.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        iou_threshold (float, optional): The IoU threshold to determine if two segments are matched. Defaults to 0.3.
+
+    Returns:
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
+
+    pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
+    post_graph_unique_segs = np.unique(post_graph_labeled_segs)
+
+    pre_matched_segs = np.zeros_like(pre_graph_labeled_segs)
+    post_matched_segs = np.zeros_like(post_graph_labeled_segs)
+    match_id = 1
+
+    for pre_segm in pre_graph_unique_segs:
+        if pre_segm == 0:
+            continue
+        pre_temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
+        # Convert binary images to uint8 format for OpenCV
+        pre_temp_mask = (pre_temp_mask * 255).astype(np.uint8)
+        # Find contours
+        pre_contours, _ = cv2.findContours(
+            pre_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
+        )
+        # FOR NOW: Skip contours with less than 4 points
+        if len(pre_contours[0].squeeze()) < 4:
+            continue
+        # Create rectangle on contour
+        x1, y1, w1, h1 = cv2.boundingRect(pre_contours[0])
+        # Convert contour to polygon
+        pre_polygon = Polygon(pre_contours[0].squeeze())
+
+        for post_segm in post_graph_unique_segs:
+            if post_segm == 0:
+                continue
+            post_temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
+            post_temp_mask = (post_temp_mask * 255).astype(np.uint8)
+            post_contours, _ = cv2.findContours(
+                post_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
+            )
+            if len(post_contours[0].squeeze()) < 4:
+                continue
+
+            # Create rectangle on contour
+            x2, y2, w2, h2 = cv2.boundingRect(post_contours[0])
+            # Skip if there is no overlap on the bounding boxes
+            if (x1 + w1 < x2 or x2 + w2 < x1) or (y1 + h1 < y2 or y2 + h2 < y1):
+                continue
+
+            post_polygon = Polygon(post_contours[0].squeeze())
+
+            # Debugging:
+            # xv, yv = pre_polygon.exterior.xy
+            # xv2, yv2 = post_polygon.exterior.xy
+            # fig, ax = plt.subplots()
+            # ax.plot(xv, yv)
+            # ax.plot(xv2, yv2)
+            # plt.show()
+
+            # Calculate the intersection and union
+            intersection = pre_polygon.intersection(post_polygon)
+            while True:  # Still have to fix this it doesnt work yet.
+                try:
+                    union = pre_polygon.union(post_polygon)
+                    break
+                except shapely.errors.GEOSException:
+                    if not shapely.is_valid(pre_polygon):
+                        pre_polygon = shapely.make_valid(pre_polygon)
+                    elif not shapely.is_valid(post_polygon):
+                        post_polygon = shapely.make_valid(post_polygon)
+                    xv, yv = pre_polygon.exterior.xy
+                    xv2, yv2 = post_polygon.exterior.xy
+                    fig, ax = plt.subplots()
+                    ax.plot(xv, yv)
+                    ax.plot(xv2, yv2)
+                    plt.show()
+
+            # Calculate areas
+            intersection_area = intersection.area
+            union_area = union.area
+
+            # Calculate IoU
+            iou = intersection_area / union_area if union_area != 0 else 0
+
+            iou_threshold = 0.3
+
+            if iou > iou_threshold:
+                pre_matched_segs[pre_temp_mask == 255] = match_id
+                post_matched_segs[post_temp_mask == 255] = match_id
+                match_id += 1
+                break
+
+    logger.info("Segments matched successfully!")
+    return pre_matched_segs, post_matched_segs
+
+
+def pixel_wise_based_matching(
+    pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels
+):
+    """
+    Uses the matched pixels (pixel-wise mask) and the labeled segments to find the corresponding segments between the pre and post segmentations.
+    This is defined based on the mask coverage of each segment.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        matched_pixels (np.ndarray): The matched pixels between the pre and post segmentations.
+
+    Returns:
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
     pre_graph_unique_segs = np.unique(pre_graph_labeled_segs)
     post_graph_unique_segs = np.unique(post_graph_labeled_segs)
 
     pre_matched_segs = np.zeros(pre_graph_labeled_segs.shape)
     post_matched_segs = np.zeros(post_graph_labeled_segs.shape)
-    match_id = 1
 
+    # Use the calculated pixel-wise mask and the labeled segments to
+    # identify matching segments based on the mask coverage of each segment
+    for pre_segm in pre_graph_unique_segs:
+        if pre_segm == 0:  # Skip id == 0
+            continue
+        temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
+        temp_one_idxs = np.nonzero(temp_mask == 1)
+        match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
+        # If the number of 0's is larger than 50% of the difference we assume its matched
+        # If the number of 1's is larger than 50% we assume its missed
+        if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
+            pre_matched_segs[temp_mask == 1] = 1
+        elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
+            pre_matched_segs[temp_mask == 1] = 2
+
+    for post_segm in post_graph_unique_segs:
+        if post_segm == 0:
+            continue
+        temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
+        temp_one_idxs = np.nonzero(temp_mask == 1)
+        match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
+        # If the number of 0's is larger than 50% of the difference we assume its matched
+        if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
+            post_matched_segs[temp_mask == 1] = 1
+        elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
+            post_matched_segs[temp_mask == 1] = 2
+
+    logger.info("Segments matched successfully!")
+    return pre_matched_segs, post_matched_segs
+
+
+def find_correspondences(
+    pre_graph_labeled_segs: np.ndarray,
+    post_graph_labeled_segs: np.ndarray,
+    matched_pixels: np.ndarray,
+    pixel_wise: bool,
+):
+    """
+    This function finds the vessel correspondences between the pre and post labeled vessel segmentations.
+    It uses the pixel-wise method or the contour-based method to find the correspondences.
+
+    Args:
+        pre_graph_labeled_segs (np.ndarray): The pre-labeled vessel segmentation.
+        post_graph_labeled_segs (np.ndarray): The post-labeled vessel segmentation.
+        matched_pixels (np.ndarray): The matched pixels between the pre and post segmentations.
+        pixel_wise (bool): Whether to use the pixel-wise method or the contour-based method.
+
+    Returns:
+        pre_labels_rgb (np.ndarray): The pre labeled matched and unmatched vessel segments in RGB format.
+        post_labels_rgb (np.ndarray): The post labeled matched and unmatched vessel segments in RGB format.
+        pre_matched_segs (np.ndarray): The pre labeled matched and unmatched vessel segments.
+        post_matched_segs (np.ndarray): The post labeled matched and unmatched vessel segments.
+    """
+    # 6. Iteratively compare segments and identify correspondence
     if not pixel_wise:
-        for pre_segm in pre_graph_unique_segs:
-            if pre_segm == 0:  # Skip id == 0
-                continue
-            pre_temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
-            # Convert binary images to uint8 format for OpenCV
-            pre_temp_mask = (pre_temp_mask * 255).astype(np.uint8)
-            # Find contours
-            pre_contours, _ = cv2.findContours(
-                pre_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
-            )
-            # FOR NOW: Skip contours with less than 4 points
-            if len(pre_contours[0].squeeze()) < 4:
-                continue
-            # Create rectangle on contour
-            x1, y1, w1, h1 = cv2.boundingRect(pre_contours[0])
-            # Convert contour to polygon
-            pre_polygon = Polygon(pre_contours[0].squeeze())
-            for post_segm in post_graph_unique_segs:
-                if post_segm == 0:
-                    continue
-                post_temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
-                post_temp_mask = (post_temp_mask * 255).astype(np.uint8)
-                post_contours, _ = cv2.findContours(
-                    post_temp_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE  # NONE
-                )
-                if len(post_contours[0].squeeze()) < 4:
-                    continue
-
-                # Create rectangle on contour
-                x2, y2, w2, h2 = cv2.boundingRect(post_contours[0])
-                # Skip if there is no overlap on the bounding boxes
-                if (x1 + w1 < x2 or x2 + w2 < x1) or (y1 + h1 < y2 or y2 + h2 < y1):
-                    continue
-
-                post_polygon = Polygon(post_contours[0].squeeze())
-
-                # Debugging:
-                # xv, yv = pre_polygon.exterior.xy
-                # xv2, yv2 = post_polygon.exterior.xy
-                # fig, ax = plt.subplots()
-                # ax.plot(xv, yv)
-                # ax.plot(xv2, yv2)
-                # plt.show()
-
-                # Calculate the intersection and union
-                intersection = pre_polygon.intersection(post_polygon)
-                while True:  # Still have to fix this it doesnt work yet.
-                    try:
-                        union = pre_polygon.union(post_polygon)
-                        break
-                    except shapely.errors.GEOSException:
-                        if not shapely.is_valid(pre_polygon):
-                            pre_polygon = shapely.make_valid(pre_polygon)
-                        elif not shapely.is_valid(post_polygon):
-                            post_polygon = shapely.make_valid(post_polygon)
-                        xv, yv = pre_polygon.exterior.xy
-                        xv2, yv2 = post_polygon.exterior.xy
-                        fig, ax = plt.subplots()
-                        ax.plot(xv, yv)
-                        ax.plot(xv2, yv2)
-                        plt.show()
-
-                # Calculate areas
-                intersection_area = intersection.area
-                union_area = union.area
-
-                # Calculate IoU
-                iou = intersection_area / union_area if union_area != 0 else 0
-
-                iou_threshold = 0.3
-
-                if iou > iou_threshold:
-                    pre_matched_segs[pre_temp_mask == 255] = match_id
-                    post_matched_segs[post_temp_mask == 255] = match_id
-                    match_id += 1
-                    break
-        logger.info("Segments matched successfully!")
-
-        pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
-        post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+        pre_matched_segs, post_matched_segs = contour_based_matching(
+            pre_graph_labeled_segs, post_graph_labeled_segs
+        )
     else:
-        # Use the calculated pixel-wise mask and the labeled segments to
-        # identify matching segments based on the mask coverage of each segment
-        for pre_segm in pre_graph_unique_segs:
-            if pre_segm == 0:  # Skip id == 0
-                continue
-            temp_mask = np.where(pre_graph_labeled_segs == pre_segm, 1, 0)
-            temp_one_idxs = np.nonzero(temp_mask == 1)
-            match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
-            # If the number of 0's is larger than 50% of the difference we assume its matched
-            # If the number of 1's is larger than 50% we assume its missed
-            if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
-                pre_matched_segs[temp_mask == 1] = 1
-            elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
-                pre_matched_segs[temp_mask == 1] = 2
+        pre_matched_segs, post_matched_segs = pixel_wise_based_matching(
+            pre_graph_labeled_segs, post_graph_labeled_segs, matched_pixels
+        )
 
-        for post_segm in post_graph_unique_segs:
-            if post_segm == 0:
-                continue
-            temp_mask = np.where(post_graph_labeled_segs == post_segm, 1, 0)
-            temp_one_idxs = np.nonzero(temp_mask == 1)
-            match_diff = temp_mask[temp_one_idxs] - matched_pixels[temp_one_idxs]
-            # If the number of 0's is larger than 50% of the difference we assume its matched
-            if np.count_nonzero(match_diff == 0) / len(match_diff) >= 0.5:
-                post_matched_segs[temp_mask == 1] = 1
-            elif np.count_nonzero(match_diff == 1) / len(match_diff) > 0.5:
-                post_matched_segs[temp_mask == 1] = 2
+    # Convert the matched segments to RGB format
+    pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+    post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
 
-        logger.info("Segments matched successfully!")
+    return pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs
 
-        pre_labels_rgb = label2rgb(pre_matched_segs, bg_label=0, bg_color=[0, 0, 0])
-        post_labels_rgb = label2rgb(post_matched_segs, bg_label=0, bg_color=[0, 0, 0])
+
+def save_overlayed(
+    root_path: str,
+    patid: str,
+    side: str,
+    preEVT: np.ndarray,
+    warped_postEVT: np.ndarray,
+):
+    logger.info(
+        f"Writing overlayed transformation images for {patid} {side} in the {root_path} directory"
+    )
+    dpi = 300
+    current_folder = os.path.join(root_path, patid, side)
+    if not os.path.exists(current_folder):
+        os.makedirs(
+            current_folder,
+        )
+    # Overlay transformed and pre-EVT images
+    fig, axs = plt.subplots(1, 3, figsize=(12, 6))
+    axs[0].imshow(preEVT, cmap="gray")
+    axs[0].imshow(warped_postEVT, cmap="Purples", alpha=0.5)
+    axs[1].imshow(preEVT, cmap="gray")
+    axs[2].imshow(warped_postEVT, cmap="Purples")
+    axs[0].set_title("Overlayed Transform")
+    axs[1].set_title("Pre-EVT")
+    axs[2].set_title("Transformed Post-EVT")
+    for a in axs:
+        a.set_xticks([])
+        a.set_yticks([])
+
+    plt.savefig(
+        os.path.join(current_folder, "overlayed.png"),
+        dpi=dpi,
+        bbox_inches="tight",
+        pad_inches=0,
+    )
+
+
+def save_labels(
+    root_path, patid, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
+):
+    logger.info(f"Writing images for {patid} {side} in the {root_path} directory")
+    current_folder = os.path.join(root_path, patid, side)
+    if not os.path.exists(current_folder):
+        os.makedirs(
+            current_folder,
+        )
+
+    # preEVT = resize(preEVT, (512, 512))
+    # tr_postEVT = resize(tr_postEVT, (512, 512))
+    # visualize_results(preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb, os.path.join(current_folder, 'rgb.png'))
+
+    save_image(os.path.join(current_folder, "pre_evt.png"), preEVT)
+
+    save_image(os.path.join(current_folder, "post_evt.png"), tr_postEVT)
+
+    save_image(
+        os.path.join(current_folder, "pre_seg_evt.png"), pre_labels_rgb, cmap="plasma"
+    )
+
+    save_image(
+        os.path.join(current_folder, "post_seg_evt.png"), post_labels_rgb, cmap="plasma"
+    )
+
+
+def save_image(
+    filename: str, image_arr: np.ndarray, cmap: str = "gray", size: tuple = None
+):
+    """
+    Utility to save an ndarray as an image, normally assumes
+    """
+    dpi = 300
+    image_arr.astype(np.uint8)
+    if not size:
+        size = (image_arr.shape[0] / dpi, image_arr.shape[1] / dpi)
+    plt.figure(figsize=size, dpi=dpi)
+    plt.axis("off")
+    plt.imshow(image_arr, cmap=cmap)
+    plt.savefig(filename, dpi=dpi, bbox_inches="tight", pad_inches=0)
+
+
+def process_new_patient(
+    pat_id: str, paths: dict, input_format: str, pixel_wise: bool = True
+):
+    logger.info(f"Processing new patient {pat_id}")
+    images = {}
+    images["pre"] = sift.load_img(paths["pre"])
+    images["post"] = sift.load_img(paths["post"])
+    # 1. Perform registration
+    preEVT, postEVT = prepare_images(images)
+    transformation, matches = sift_matching(preEVT, postEVT)
+    if not matches:
+        logger.info("SIFT has no matches, continuing...")
+        return False
+
+    # 2. Segmentation
+    segm_output_folder = "Outputs/test"
+    feat_map_pre_post = generate_segmentations(segm_output_folder, paths, input_format)
+    # Plot the feature maps of one seq for reference (Optional)
+    # predict.display_feature_maps(feat_map_pre_post)
+    # The list contains two maps, where pre-post are first-second
+    # The maps have a torch tensor format
+
+    # Load generated segmentations and map them to the pre and post images
+    segm_images = sklt.load_images(segm_output_folder)
+    segm_pre_post = []
+    for segm in segm_images:
+        if Path(segm).stem.rsplit("_", 1)[1] == "artery":
+            if Path(segm).stem.rsplit("_", 1)[0] == Path(paths["pre"]).stem:
+                segm_pre_post.insert(0, sift.load_img(segm))
+            else:
+                segm_pre_post.append(sift.load_img(segm))
+
+    # Check if the transformation quality is better than the original
+    try:
+        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+            segm_pre_post, transformation, preEVT, postEVT
+        )
+    except ValueError:
+        transform_failed = True
+        tr_postEVT = postEVT
+        return False
+
+    save_overlayed("Outputs/overlayed", pat_id, "", preEVT, tr_postEVT)
+
+    matched_pixels = pixel_wise_method(segm_pre_post, vis=False) if pixel_wise else []
+
+    if transform_failed:
+        return False
+
+    # 2. Skeletonization
+
+    logger.info(f"Skeletonizing")
+
+    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+    # 3. Create Graphs and Extract labeled segments
+
+    logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+    )
+
+    # 4. Iteratively compare segments and identify correspondence
+    logger.info("Performing segment correspondence matching.")
+    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+        find_correspondences(
+            pre_graph_labeled_segs,
+            post_graph_labeled_segs,
+            matched_pixels,
+            pixel_wise,
+        )
+    )
+
+    save_labels(
+        "Outputs/results",
+        pat_id,
+        "",
+        preEVT,
+        tr_postEVT,
+        pre_labels_rgb,
+        post_labels_rgb,
+    )
+    print(f"Patient {pat_id} completed")
+
+    return True
+
+
+def generate_segmentations(segm_output_folder: str, paths: dict, input_format: str):
+    segm_output_folder = "Outputs/test"
+    for path in Path(segm_output_folder).glob("*"):
+        if path.is_file():
+            path.unlink()
+
+    feat_map_pre_post = []
+    feat_map_pre_post.append(
+        predict.run_predict(
+            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+            in_img_path=paths["pre"],
+            out_img_path=segm_output_folder,
+            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+            input_type="sequence",
+            input_format=input_format,
+            label_type="av",
+            amp=True,
+        )
+    )
+    feat_map_pre_post.append(
+        predict.run_predict(
+            # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
+            in_img_path=paths["post"],
+            out_img_path=segm_output_folder,
+            model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+            input_type="sequence",
+            input_format=input_format,
+            label_type="av",
+            amp=True,
+        )
+    )
+    return feat_map_pre_post
+
+
+def process_patient(pat_id: str, paths: dict, pixel_wise: bool = True):
+    """
+    Processes a patient's data by performing registration, segmentation, skeletonization, graph creation, and segment correspondence matching.
+
+    Args:
+        pat_id (str): The patient ID.
+        paths (dict): A dictionary containing paths to the images and segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+
+    Returns:
+        dict: A dictionary containing the results of the processing.
+    """
+    # replacing the image path with the loaded images
+    logger.info("Loading image paths")
+    images_and_segmentations = load_images_from_paths(paths)
+    images = images_and_segmentations["nifti"]
+    segmentations = images_and_segmentations["segm"]
+    patient_results = {"patid": pat_id, "ap": True, "lat": True}
+
+    for side in ["ap", "lat"]:
+        patient_results[side] = process_side(
+            pat_id, side, images, segmentations, pixel_wise
+        )
+
+    return patient_results
+
+
+def process_side(
+    pat_id: str, side: str, images: dict, segmentations: dict, pixel_wise: bool = True
+) -> bool:
+    """
+    Processes a patient's data for a specific side (ap or lat).
+
+    Args:
+        pat_id (str): The patient ID.
+        side (str): The side to process (ap or lat).
+        images (dict): A dictionary containing the images.
+        segmentations (dict): A dictionary containing the segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+
+    Returns:
+        bool: True if the processing was successful, False otherwise.
+    """
+    # 1. Perform registration
+    preEVT, postEVT = prepare_images(images[side]["full"])
+    transformation, matches = sift_matching(preEVT, postEVT)
+    if not matches:
+        logger.info("SIFT has no matches, continuing...")
+        return False
+
+    # Check if the transformation quality is better than the original
+    segm_pre_post = [
+        segmentations[side]["art"]["pre"],
+        segmentations[side]["art"]["post"],
+    ]
+    try:
+        transform_failed, tr_postEVT, segm_pre_post[1] = check_transform(
+            segm_pre_post, transformation, preEVT, postEVT
+        )
+    except ValueError:
+        transform_failed = True
+        tr_postEVT = postEVT
+        return False
+
+    save_overlayed("overlayed_cases", pat_id, side, preEVT, tr_postEVT)
+
+    matched_pixels = pixel_wise_method(segm_pre_post, vis=False) if pixel_wise else []
+
+    if transform_failed:
+        return False
+
+    # 2. Skeletonization
+
+    logger.info(f"Skeletonizing {side}")
+
+    skeleton_images, distance_transform = generate_skeletons(segm_pre_post)
+
+    # 3. Create Graphs and Extract labeled segments
+
+    logger.info(f"Generating Graphs and Extracting Labeled Segments")
+
+    pre_graph, post_graph, pre_graph_labeled_segs, post_graph_labeled_segs = (
+        extract_labeled_segments(skeleton_images, distance_transform, segm_pre_post)
+    )
+
+    # 4. Iteratively compare segments and identify correspondence
+    logger.info("Performing segment correspondence matching.")
+    pre_labels_rgb, post_labels_rgb, pre_matched_segs, post_matched_segs = (
+        find_correspondences(
+            pre_graph_labeled_segs,
+            post_graph_labeled_segs,
+            matched_pixels,
+            pixel_wise,
+        )
+    )
+
+    save_labels(
+        "cases", pat_id, side, preEVT, tr_postEVT, pre_labels_rgb, post_labels_rgb
+    )
+    print(f"{side} completed")
+
+    return True
+
+
+def prepare_images(images: dict) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Prepares the pre and post-EVT images by removing text and borders.
+
+    Args:
+        images (dict): A dictionary containing the pre and post-EVT images.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: The pre and post-EVT images.
+    """
+    preEVT = sift.remove_text_and_border(images["pre"])
+    postEVT = sift.remove_text_and_border(images["post"])
+    return preEVT, postEVT
+
+
+def generate_data_for_visual_evaluation(
+    in_img_path: str, in_segm_path: str, pixel_wise: bool = True
+):
+    """
+    Generates data for visual evaluation of the sift based pixel wise matching method.
+    Takes as input a nifti directory and a segmentation directory created by the prepare_data.py script (for now).
+
+    Args:
+        in_img_path (str): The path to the pre-EVT images.
+        in_segm_path (str): The path to the segmentations.
+        pixel_wise (bool, optional): Whether to use pixel-wise matching. Defaults to True.
+    """
+    # Load all input images into a dictionary for processing
+    image_path_dictionary = get_image_pairs(
+        in_img_path=in_img_path, in_segm_path=in_segm_path
+    )
+    df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+    processed_cases = os.listdir("cases")
+    image_path_dictionary = {
+        key: image_path_dictionary[key]
+        for key in image_path_dictionary
+        if key not in processed_cases
+    }
+    for patid, paths in image_path_dictionary.items():
+        logger.info(f"{patid:=^20}")
+        patient_success = process_patient(patid, paths, pixel_wise)
+        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
+    df_successes.to_csv("successes.csv")
+    logger.info("Data for visual evaluation generated.")
+    return
+
+
+def single_patient_visual_evaluation(
+    in_img_path: str | None,
+    in_segm_path: str | None,
+    in_pre_path: str | None,
+    in_post_path: str | None,
+    input_format: str,
+    pixel_wise: bool = True,
+):
+    """
+    Performs visual evaluation of the sift based pixel wise matching method for a single patient.
+    The input can be provided in two ways:
+    1. in_img_path and in_segm_path: Nifti and segmentation directories of a patient (e.g Niftis/Patient_1 and Segmentations/Patient_1).
+    2. in_pre_path and in_post_path: Paths to the pre-EVT and post-EVT sequences (Nifti | Dicom).
+
+    Args:
+        in_img_path (str | None): The Nifti directory path for the pre-EVT and post-EVT sequences.
+        in_segm_path (str | None): The segmentation directory path for the pre-EVT and post-EVT sequences.
+        in_pre_path (str | None): The path to the pre-EVT sequence.
+        in_post_path (str | None): The path to the post-EVT sequence.
+    """
+    if in_img_path != None and in_segm_path != None:
+        patid, image_path_dictionary = get_image_pair_for_patient(
+            in_img_path, in_segm_path
+        )
+        df_successes = pd.DataFrame(columns=["patid", "ap", "lat"])
+        print(image_path_dictionary)
+        # for paths in image_path_dictionary.values():
+        logger.info(f"{patid:=^20}")
+        patient_success = process_patient(patid, image_path_dictionary, pixel_wise)
+        df_successes = pd.concat([df_successes, pd.DataFrame([patient_success])])
+        print(df_successes)
+    elif in_pre_path != None and in_post_path != None:
+        patid = str(Path(in_pre_path).parents[1].stem)
+        paths = {"pre": in_pre_path, "post": in_post_path}
+        patient_success = process_new_patient(patid, paths, input_format, pixel_wise)
+        print(patient_success)
+    else:
+        raise "Either in_img_path and in_segm_path or in_pre_path and in_post_path must be provided."
+    logger.info(f"Patient {patid} processing completed.")
+
+
+def setup_logging():
+    log_filepath = "log/{}.log".format(Path(__file__).stem)
+    if not os.path.isdir("log"):
+        os.mkdir("log")
+    logging.basicConfig(
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        handlers=[
+            logging.FileHandler(log_filepath, mode="w"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+
+def main(
+    in_img_path,
+    in_segm_path,
+    in_pre_path,
+    in_post_path,
+    input_format="nifti",
+    input_type="single",
+    pixel_wise=False,
+    eval=False,
+):
+    setup_logging()
+
+    if eval:
+        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
+        evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
+        return
+
+    match input_type:
+        case "single":
+            single_patient_visual_evaluation(
+                in_img_path,
+                in_segm_path,
+                in_pre_path,
+                in_post_path,
+                input_format,
+                pixel_wise,
+            )
+        case "multiple":
+            generate_data_for_visual_evaluation(in_img_path, in_segm_path, pixel_wise)
+        case _:
+            raise "Input type must be single or multiple."
+
+    return
 
     visualize_results(
         segm_pre_post[0], segm_pre_post[1], pre_labels_rgb, post_labels_rgb
@@ -1060,7 +1686,7 @@ def get_args():
     parser.add_argument('--in_pre_path','-pre',default=None, help='Path of pre-DSA sequence.')
     parser.add_argument('--in_post_path','-post',default=None, help='Path of post-DSA sequence.')
     parser.add_argument('--input-format','-f',default='dicom',help='Input format - dicom or nifti')
-    parser.add_argument("--load-segs",action="store_true",default=False,help="Load the segmentations.")
+    parser.add_argument('--input-type','-t',default='single',help='Input type - single or multiple patients')
     parser.add_argument("--pixel-wise",action="store_true",default=False,help="Use the pixel wise method for matching.")
     parser.add_argument("--eval",action="store_true",default=False,help="Evaluate the method.")
 #fmt:on
