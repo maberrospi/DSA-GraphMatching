@@ -1,16 +1,16 @@
 # Vessel correspondence in pre-post-intervention DSA images of ischemic stroke patients
 
-- [Quick Start](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#quick-start)
-- [Description](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#description)
-- [Usage](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#usage)
-  - [Data Preparation (Optional)](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#data-preparation)
-  - [RB-VM Method](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#run-rb-vm-method)
-  - [GB-VM Methods](https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching#run-gb-vm-methods).
+- [Quick Start](https://github.com/maberrospi/DSA-GraphMatching.git#quick-start)
+- [Description](https://github.com/maberrospi/DSA-GraphMatching.git#description)
+- [Usage](https://github.com/maberrospi/DSA-GraphMatching.git#usage)
+  - [Data Preparation (Optional)](https://github.com/maberrospi/DSA-GraphMatching.git#data-preparation)
+  - [RB-VM Method](https://github.com/maberrospi/DSA-GraphMatching.git#run-rb-vm-method)
+  - [GB-VM Methods](https://github.com/maberrospi/DSA-GraphMatching.git#run-gb-vm-methods).
 
 ## Quick Start
 ```
 # Clone repository
-git clone https://gitlab.com/radiology/igit/icai-stroke-lab/msc-students/dsa-graphmatching.git
+git clone https://github.com/maberrospi/DSA-GraphMatching.git
 
 # Install the 'enviornment_nobuilds.yml' file
 $ conda env create -f environment_nobuilds.yml
@@ -22,7 +22,7 @@ $ conda activate DSA-GM
 ## Description
 This code implements two methods to identify arterial vessel correspondence in pre- and post-EVT DSA images. 
 They are Registration Based Vessel Matching (RB-VM) and Graph Based Vessel Matching (GB-VM).
-The code for RB-VM is provided in 'sift_based.py' and the code for GB-VM is in 'Pipeline.py'
+The code for RB-VM is provided in 'sift_baseline.py' and the code for GB-VM is in 'Pipeline.py'
 
 ## Usage
 Note: The methods were implemented using Python 3.12.2
