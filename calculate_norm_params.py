@@ -10,11 +10,12 @@ import SIFTTransform as sift
 import Skeletonization as sklt
 import graph_processing as GProc
 import graph_matching as GMatch
+import config
 
 
 def calc_params():
     # Calculates mean, std, min and max from data included in the annotations
-    ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
+    ANNOT_DIR_PATH = config.ANNOT_DIR_PATH
 
     # Create Leung-Malik filter bank
     LM_filter_banks = FilterBanks.makeLMfilters()
@@ -76,12 +77,7 @@ def calc_params():
             # 2. Segmentation
             # Since this is the evaluation we assume the segmentations and feature maps will always be loaded.
 
-            IMG_SEQ_DIR_PATH = (
-                "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/"
-                + pat_id
-                + "/"
-                + pat_ori
-            )
+            IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + pat_id + "/" + pat_ori
 
             segm_images1 = sklt.load_images(IMG_SEQ_DIR_PATH)
 

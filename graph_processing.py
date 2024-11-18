@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from Skeletonization import load_images, get_skeletons, find_centerlines
 import graph_feature_extraction as GFeatExt
+import config
 
 # Overlay original
 import cv2
@@ -608,10 +609,7 @@ def main():
     )
 
     # Just testing how the graph creation works.
-    # IMG_SEQ_DIR_PATH = (
-    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0002"
-    # )
-    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0038/0"
+    IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + "/R0002/0"
     img_ind = 0
     segm_images = load_images(IMG_SEQ_DIR_PATH)
     if not segm_images:
@@ -624,27 +622,27 @@ def main():
     )
 
     # Create graph
-    # gr = create_graph(
-    #     skeletons[img_ind],
+    gr = create_graph(
+        skeletons[img_ind],
+        skeleton_points,
+        distance_transform[img_ind],
+        g_name="gr",
+        vis=True,
+        verbose=True,
+    )
+    skeleton_points = find_centerlines(skeletons[img_ind + 1])
+    # gr1 = create_graph(
+    #     skeletons[img_ind + 1],
     #     skeleton_points,
-    #     distance_transform[img_ind],
-    #     g_name="gr",
+    #     distance_transform[img_ind + 1],
+    #     g_name="gr1",
     #     vis=True,
     #     verbose=True,
     # )
-    skeleton_points = find_centerlines(skeletons[img_ind + 1])
-    gr1 = create_graph(
-        skeletons[img_ind + 1],
-        skeleton_points,
-        distance_transform[img_ind + 1],
-        g_name="gr1",
-        vis=False,
-        verbose=True,
-    )
-    # print("G1")
-    # ig.summary(gr)
-    print("G2")
-    ig.summary(gr1)
+    print("G1")
+    ig.summary(gr)
+    # print("G2")
+    # ig.summary(gr1)
 
     # Test to see what the linegraph looks like
     # Keep in mind that when converting the attributes are discarded

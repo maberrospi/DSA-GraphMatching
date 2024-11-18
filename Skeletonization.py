@@ -266,15 +266,10 @@ def main():
         ],
     )
 
-    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0001"
-    # IMG_SEQ_DIR_PATH = (
-    #     "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Sequence/R0001"
-    # )
-
     # V2
-    # IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/R0002"
-    IMG_MIN_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Outputs/test"
-    IMG_SEQ_DIR_PATH = "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/R0002"
+    # Just for testing out
+    IMG_MIN_DIR_PATH = "Outputs/test"
+    IMG_SEQ_DIR_PATH = "Patients/R0002"
 
     segm_images = load_images(IMG_MIN_DIR_PATH)
     # vis_image(segm_images, 0)
