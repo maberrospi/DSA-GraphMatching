@@ -111,9 +111,6 @@ def main(
 
     if in_segm_path != None and in_img_path != None:
         # If True we assume that the feature maps will also be loaded
-        # IMG_SEQ_DIR_PATH = (
-        #     "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/" + pat_id + "/" + pat_ori
-        # )
         IMG_SEQ_DIR_PATH = in_segm_path + "/" + pat_id + "/" + pat_ori
 
     else:
@@ -130,17 +127,6 @@ def main(
         # Returns the sequence feature maps from the chosen layer (feature extraction)
         # In our case the chosen layer is "up4" form the model
         # Doesn't work with mrclean dir structure yet.
-        # Need to change this to make sure pre and post are not reversed
-        # feat_map_pre_post = predict.run_predict(
-        #     # in_img_path="E:/vessel_diff_first_50_patients/mrclean_part1_2_first_50/R0002",
-        #     in_img_path=IMG_DIR_PATH,
-        #     out_img_path=segm_output_folder,
-        #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
-        #     input_type="sequence",
-        #     input_format="nifti",
-        #     label_type="av",
-        #     amp=True,
-        # )
         # On the fly segmentation now only works if you provide pre-post inputs.
         # Otherwise there is no way to know which is pre and post using a directory as input
         feat_map_pre_post = []
@@ -955,12 +941,12 @@ def patch_match(
     GMatch.multiscale_draw_matches_interactive(
         pre_graph,
         post_graph,
-        orig_pre_post_evt[0],  # orig_pre_post_evt[0],  # vis_pre_segm,
-        orig_pre_post_evt[1],  # orig_pre_post_evt[1],  # vis_post_segm,
+        vis_pre_segm,  # orig_pre_post_evt[0],  # vis_pre_segm,
+        vis_post_segm,  # orig_pre_post_evt[1],  # vis_post_segm,
         keypoints1,
         keypoints2,
         lines,
-        segm=False,
+        segm=True,
     )
 
 

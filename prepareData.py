@@ -369,7 +369,7 @@ def main(dcm_dir_path,csv_path,out_nifti_path,out_minip_path):
     # save_feature_maps(
     #     in_img_path=NIFTI_DIR,
     #     out_img_path=FEAT_MAP_DIR,
-    #     model="C:/Users/mab03/Desktop/RuSegm/TemporalUNet/models/1096-sigmoid-sequence-av.pt",
+    #     model="model_path.pt",
     #     input_type="sequence",
     #     input_format="nifti",
     #     label_type="av",

@@ -28,6 +28,8 @@ from evaluate import bootstrap
 sys.path.insert(1, os.path.join(sys.path[0], "Segmentation"))
 from Segmentation import predict
 
+import config
+
 logger = logging.getLogger(__name__)
 
 
@@ -316,7 +318,7 @@ def run_eval(json_files, pixel_wise, load_segs=True):
                 json_pre_split[4]
             )
 
-            IMG_DIR_PATH = "Niftisv2/" + pat_id + "/" + pat_ori
+            IMG_DIR_PATH = config.IMG_DIR_PATH + pat_id + "/" + pat_ori
             images_path = sift.load_img_dir(IMG_DIR_PATH, img_type="nifti")
             # Check if list is empty
             if not images_path:
@@ -351,15 +353,8 @@ def run_eval(json_files, pixel_wise, load_segs=True):
 
             if load_segs:
                 # If True we assume that the feature maps will also be loaded
-                IMG_MIN_DIR_PATH = (
-                    "C:/Users/mab03/Desktop/RuSegm/TemporalUNet/Outputs/Minip/" + pat_id
-                )
-                IMG_SEQ_DIR_PATH = (
-                    "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/"
-                    + pat_id
-                    + "/"
-                    + pat_ori
-                )
+                IMG_MIN_DIR_PATH = config.IMG_MIN_DIR_PATH + pat_id
+                IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + pat_id + "/" + pat_ori
             else:
                 # NOTE: IMG_DIR_PATH and IMG_SEQ_DIR_PATH must be refering to the same patient (e.g. R0002)
                 segm_output_folder = "Outputs/test"
@@ -1649,7 +1644,7 @@ def main(
     setup_logging()
 
     if eval:
-        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
+        ANNOT_DIR_PATH = config.ANNOT_DIR_PATH
         evaluate(ANNOT_DIR_PATH, pixel_wise=True, calculate_ci=True)
         return
 

@@ -21,6 +21,7 @@ import graph_processing as GProc
 import filter_banks as FilterBanks
 import norm_params
 import normalizations as Norms
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +76,7 @@ def prepare_patches(img_dir, output_dir="PatchedImages"):
             )
 
             # Assume that segmentations are ALWAYS being loaded
-            IMG_SEQ_DIR_PATH = (
-                "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/"
-                + pat_id
-                + "/"
-                + pat_ori
-            )
+            IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + pat_id + "/" + pat_ori
 
             segm_images = sklt.load_images(IMG_SEQ_DIR_PATH)
 
@@ -422,12 +418,7 @@ def evaluate_patches(
             # 2. Segmentation
             # Since this is the evaluation we assume the segmentations and feature maps will always be loaded.
 
-            IMG_SEQ_DIR_PATH = (
-                "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/"
-                + pat_id
-                + "/"
-                + pat_ori
-            )
+            IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + pat_id + "/" + pat_ori
 
             FEAT_MAP_DIR_PATH = "FeatMapsv2/" + pat_id + "/" + pat_ori
             feat_map_pre_post = []
@@ -970,12 +961,7 @@ def bootstrap_eval(
             # 2. Segmentation
             # Since this is the evaluation we assume the segmentations and feature maps will always be loaded.
 
-            IMG_SEQ_DIR_PATH = (
-                "C:/Users/mab03/Desktop/ThesisCode/Segms/Sequence/"
-                + pat_id
-                + "/"
-                + pat_ori
-            )
+            IMG_SEQ_DIR_PATH = config.IMG_SEQ_DIR_PATH + pat_id + "/" + pat_ori
 
             FEAT_MAP_DIR_PATH = "FeatMapsv2/" + pat_id + "/" + pat_ori
             feat_map_pre_post = []
@@ -1459,7 +1445,7 @@ def main(
             print("Canceling preparation...")
 
     if evaluate:
-        ANNOT_DIR_PATH = "C:/Users/mab03/Desktop/AnnotationTool/Output"
+        ANNOT_DIR_PATH = config.ANNOT_DIR_PATH
         evaluate_patches(ANNOT_DIR_PATH, match_type, load_ft_maps, calculate_ci)
 
 
